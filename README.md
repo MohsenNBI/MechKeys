@@ -382,4 +382,4 @@ The program is under the **MIT** licence (see `LICENSE`).
 - The Persian face is **Vazirmatn** and the Latin face is **IBM Plex Mono**,
   both under the SIL Open Font License and bundled locally in `src/fonts`.
 - Built by [mohsenNBI](https://github.com/mohsenNBI) ·
-  Telegram: [Mohsen_vg](https://t.me/Mohsen_vg)
+  Telegram: [mohsen_nbi](https://t.me/mohsen_nbi)
