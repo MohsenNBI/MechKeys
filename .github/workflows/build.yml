@@ -1,0 +1,86 @@
+name: build
+
+# Every push and pull request is tested and left with installers in the run's
+# artifacts. A `v*` tag additionally publishes those installers on a GitHub
+# Release, which is the only place MechKeys looks when it asks for an update.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: windows / ${{ matrix.arch }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: x86
+            target: i686-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run the tests
+        working-directory: src-tauri
+        run: cargo test --release --locked --target ${{ matrix.target }}
+
+      - name: Build the installer
+        run: npx --yes @tauri-apps/cli@2 build --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MechKeys-windows-${{ matrix.arch }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: MechKeys-windows-*
+          path: installers
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: MechKeys ${{ github.ref_name }}
+          files: installers/*.exe
+          generate_release_notes: true
+          body: |
+            Two installers, one for each word size. Take the `x64` build unless
+            `wmic os get osarchitecture` reports 32-bit, which is rare on any
+            machine from the last decade.
+
+            Windows may warn on the first run because the installer carries no
+            paid publisher signature: **More info → Run anyway**. The program
+            itself asks for nothing at install time, writes one settings file
+            under `%APPDATA%\MechKeys`, and makes no network request unless the
+            update check is turned on.

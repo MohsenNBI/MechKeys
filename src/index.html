@@ -1,0 +1,1246 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MechKeys</title>
+<style>
+/* ============================================================
+   MechKeys — the board is the interface.
+   One memorable thing: a semi-3D keyboard that sits at the top of
+   the window and takes the keystrokes you are really making, cap by
+   cap. Everything else is a setting for it, so everything else is
+   behind a tab.
+   ============================================================ */
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("fonts/Vazirmatn-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("fonts/Vazirmatn-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Vazirmatn";
+  src: url("fonts/Vazirmatn-Bold.woff2") format("woff2");
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Plex";
+  src: url("fonts/plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Plex";
+  src: url("fonts/plex-mono-600.woff2") format("woff2");
+  font-weight: 600;
+  font-display: swap;
+}
+
+:root {
+  --bg: #0e1218;
+  --plate: #161d26;
+  --card: #1b232e;
+  --line: #26313e;
+  --line-hi: #374554;
+  --text: #e9edf2;
+  --muted: #93a0ad;
+  --dim: #5f6b78;
+  --amber: #f5a83f;
+  --amber-ink: #241605;
+  --amber-soft: rgba(245, 168, 63, .14);
+  --danger: #ef6d6d;
+  --ui: "Vazirmatn", "Segoe UI", Tahoma, sans-serif;
+  --spec: "Plex", "Cascadia Mono", Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background:
+    /* brushed plate: hairlines you feel before you see */
+    repeating-linear-gradient(90deg, rgba(255,255,255,.014) 0 1px, transparent 1px 4px),
+    radial-gradient(130% 55% at 50% -8%, #1d2632 0%, var(--bg) 60%);
+  color: var(--text);
+  font: 13px/1.75 var(--ui);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.defs { position: absolute; width: 0; height: 0; }
+.app {
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 10px 12px 9px; height: 100%;
+}
+.mono { font-family: var(--spec); font-variant-numeric: tabular-nums; }
+
+/* ---------- header ---------- */
+header { display: flex; align-items: center; gap: 10px; }
+.mark {
+  width: 36px; height: 36px; border-radius: 11px; flex: 0 0 auto; display: block;
+  box-shadow: 0 2px 8px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.titles { min-width: 0; }
+h1 { font-size: 16px; font-weight: 800; letter-spacing: -.2px; line-height: 1.3; }
+.eyebrow {
+  font-family: var(--spec); font-size: 9.5px; font-weight: 600; letter-spacing: .13em;
+  color: var(--dim); text-transform: uppercase; display: block; margin-top: 1px;
+}
+header .grow { flex: 1; }
+.state { font-size: 10.5px; color: var(--muted); text-align: center; line-height: 1.4; }
+.state b { display: block; font-family: var(--spec); font-size: 11px; color: var(--amber); }
+/* A number plus a Latin unit inside an RTL paragraph would reorder to "ms 0.9". */
+#stateLat { direction: ltr; unicode-bidi: isolate; }
+/* The toggles and the slider are the only gooey surfaces left: the filter
+   blurs, then snaps alpha back up, so two overlapping shapes fuse into one
+   drop. Only these live inside it, so text never smears. */
+.goo-sm { filter: url(#goo-sm); }
+
+/* A knob rests at the start of its rail and travels to the end when it is
+   switched on. Which way that is depends on the writing direction, so the
+   travel is signed rather than hard coded to the left. */
+:root { --dir: 1; }
+html[dir="rtl"] { --dir: -1; }
+
+.tgl { position: relative; display: inline-flex; flex: 0 0 auto; width: 48px; height: 27px; cursor: pointer; }
+.tgl input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.tgl .rail {
+  position: absolute; inset: 5px 0; border-radius: 999px;
+  background: #232c37; box-shadow: inset 0 0 0 1px #2f3a47;
+}
+.tgl .drops { position: absolute; inset: 0; pointer-events: none; }
+.tgl .puck, .tgl .tail {
+  position: absolute; top: 50%; inset-inline-start: 5px; width: 17px; height: 17px; border-radius: 50%;
+  background: #7c8996; transform: translateY(-50%);
+}
+/* Same destination, different speed: the tail is still back there when the
+   puck arrives, and the filter stretches the gap into a neck that snaps. */
+.tgl .puck { transition: transform .19s cubic-bezier(.34,1.4,.64,1), background .19s; }
+.tgl .tail {
+  width: 12px; height: 12px; opacity: .9;
+  transition: transform .34s cubic-bezier(.5,0,.2,1) .03s, background .19s, opacity .19s;
+}
+.tgl input:checked ~ .rail { background: var(--amber-soft); box-shadow: inset 0 0 0 1px rgba(245,168,63,.5); }
+.tgl input:checked ~ .drops .puck { transform: translate(calc(var(--dir) * 21px), -50%); background: var(--amber); }
+.tgl input:checked ~ .drops .tail { transform: translate(calc(var(--dir) * 16px), -50%); background: var(--amber); }
+.tgl.big { width: 54px; height: 30px; }
+.tgl.big .puck { width: 20px; height: 20px; }
+.tgl.big .tail { width: 14px; height: 14px; }
+.tgl.big input:checked ~ .drops .puck { transform: translate(calc(var(--dir) * 24px), -50%); }
+.tgl.big input:checked ~ .drops .tail { transform: translate(calc(var(--dir) * 19px), -50%); }
+.tgl input:focus-visible ~ .rail { outline: 2px solid var(--amber); outline-offset: 3px; }
+
+/* ---------- the board ---------- */
+/* A real board seen from just above its front edge. The perspective is what
+   makes the far row read smaller than the space bar, and every cap carries its
+   own wall in stacked shadows so it can sink into the plate when struck. */
+.stage { perspective: 620px; padding: 4px 0 0; }
+.board {
+  direction: ltr;
+  display: grid;
+  grid-template-columns: repeat(60, 1fr);
+  grid-template-rows: 17px repeat(5, 23px);
+  gap: 3px 0;
+  padding: 8px 7px 9px;
+  border-radius: 11px;
+  background: linear-gradient(168deg, #26313f 0%, #161e28 55%, #121922 100%);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -1px 0 rgba(0,0,0,.5);
+  transform: rotateX(23deg) rotateY(-7deg);
+  transform-style: preserve-3d;
+  position: relative;
+}
+/* The case has a front lip; without it the plate ends in mid air. */
+.board::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -7px; height: 8px;
+  border-radius: 0 0 11px 11px;
+  background: linear-gradient(180deg, #1a222c, #0b1016);
+  box-shadow: 0 10px 18px rgba(0,0,0,.5);
+}
+.cap {
+  position: relative; margin: 0 1.5px; border: 0; padding: 0; cursor: pointer;
+  border-radius: 4px;
+  background: linear-gradient(176deg, #f1f4f8 0%, #d6dde5 46%, #b7c1cc 100%);
+  box-shadow: 0 2px 0 #939eab, 0 4px 0 #6d7885, 0 5px 0 #49525d, 0 7px 11px rgba(0,0,0,.42);
+  color: #2b3540;
+  font: 600 8px/1 var(--spec);
+  letter-spacing: .03em;
+  display: grid; place-items: center;
+  transition: transform .085s ease, box-shadow .085s ease, background .22s ease, color .22s ease;
+}
+.cap:hover { background: linear-gradient(176deg, #ffffff 0%, #e3e9ef 46%, #c3ccd6 100%); }
+.cap:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; z-index: 2; }
+/* Struck: the cap goes down into its own wall, and the wall shortens with it. */
+.cap.hit {
+  transform: translateY(5px);
+  background: linear-gradient(176deg, #ffdda6 0%, #f5a83f 55%, #dd901f 100%);
+  color: #33200a;
+  box-shadow: 0 1px 0 #a4783a, 0 2px 0 #7d5b2c, 0 2px 0 #5b4321,
+              0 3px 8px rgba(0,0,0,.4), 0 0 16px rgba(245,168,63,.5);
+  transition: transform .05s ease, box-shadow .05s ease, background .05s ease;
+}
+/* The ring the strike leaves behind, outliving the press itself. */
+.cap::after {
+  content: ""; position: absolute; inset: -2px; border-radius: 6px;
+  border: 1px solid rgba(245,168,63,.85); opacity: 0; pointer-events: none;
+}
+.cap.wave::after { animation: ring .38s ease-out; }
+@keyframes ring {
+  0% { opacity: .9; transform: scale(.86); }
+  100% { opacity: 0; transform: scale(1.5); }
+}
+.boardline {
+  display: flex; align-items: center; gap: 7px; margin-top: 13px; min-height: 22px;
+  font-size: 10.5px; color: var(--muted);
+}
+.boardline .tag {
+  font-family: var(--spec); font-size: 9px; letter-spacing: .08em; color: var(--amber);
+  border: 1px solid rgba(245,168,63,.4); border-radius: 6px; padding: 1px 5px;
+  flex: 0 0 auto; direction: ltr;
+}
+.boardline .who { margin-inline-start: auto; font-size: 10px; color: var(--dim); flex: 0 0 auto; }
+
+/* ---------- tabs ---------- */
+.tabs {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
+  background: var(--plate); border: 1px solid var(--line); border-radius: 11px; padding: 3px;
+}
+.tab {
+  padding: 5px 4px; border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+  color: var(--muted); font-family: inherit; font-size: 11.5px; font-weight: 600;
+  transition: .16s;
+}
+.tab:hover { color: var(--text); }
+.tab[aria-selected="true"] {
+  background: linear-gradient(180deg, #2a3543, #222b36);
+  color: #f7cb93; box-shadow: inset 0 0 0 1px rgba(245,168,63,.35), 0 2px 6px rgba(0,0,0,.3);
+}
+.tab:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+
+/* ---------- panes ---------- */
+.panes { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #2b3644 transparent; }
+.pane { display: flex; flex-direction: column; gap: 7px; padding: 2px 1px 4px; }
+
+/* ---------- cards ---------- */
+.card {
+  background: linear-gradient(180deg, var(--card), var(--plate));
+  border: 1px solid var(--line); border-radius: 13px; padding: 7px 11px 8px;
+  box-shadow: 0 1px 0 rgba(255,255,255,.03) inset, 0 6px 16px rgba(0,0,0,.22);
+}
+.head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.label { font-size: 11.5px; font-weight: 600; color: var(--muted); letter-spacing: .01em; }
+.note { font-size: 10px; color: var(--dim); margin-inline-start: auto; }
+/* A caption with nothing beside it belongs at the reading edge, not the far one. */
+.head .note:only-child { margin-inline-start: 0; }
+
+/* ---------- switch grid with the travelling tile ---------- */
+.grid {
+  position: relative; display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 5px; padding: 5px;
+}
+/* The tile sits exactly on the chosen card and slides to the next one. The
+   cards paint above it, so their text flips to dark ink when it arrives. */
+.blob {
+  position: absolute; border-radius: 11px; background: var(--amber); pointer-events: none;
+  transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease;
+  inset-inline: auto;
+}
+.prof {
+  position: relative; z-index: 1; background: transparent; border: 1px solid var(--line);
+  border-radius: 11px; padding: 5px 4px 4px; color: var(--text); cursor: pointer;
+  font-family: inherit; text-align: center; transition: border-color .2s, color .2s;
+}
+.prof b {
+  display: block; font-family: var(--spec); font-size: 9.5px; font-weight: 600;
+  letter-spacing: .04em; line-height: 1.4; white-space: nowrap; direction: ltr;
+}
+.prof small { display: block; font-size: 10px; color: var(--dim); line-height: 1.4; }
+.prof:hover { border-color: var(--line-hi); }
+.prof[aria-checked="true"] { border-color: transparent; }
+.prof[aria-checked="true"] b { color: var(--amber-ink); font-weight: 600; }
+.prof[aria-checked="true"] small { color: rgba(36, 22, 5, .72); }
+.prof:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.sw-desc {
+  margin-top: 5px; padding-top: 6px; border-top: 1px dashed var(--line);
+  font-size: 10.5px; color: var(--muted); line-height: 1.6; min-height: 24px;
+}
+/* The last card in the grid is wide, and it is the only one that is not a
+   recorded switch: its voice is rendered at run time, and which one is yours to
+   pick from the pull-down at its other end. */
+.prof.wide {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 8px;
+  padding: 4px 9px; text-align: start;
+}
+.prof.wide b { flex: 0 0 auto; }
+.prof.wide small { display: inline; line-height: 1.9; }
+.inst {
+  margin-inline-start: auto; flex: 0 0 auto; padding: 3px 6px; border-radius: 8px;
+  background: var(--plate); border: 1px solid var(--line); color: var(--text);
+  font: 11px var(--ui); cursor: pointer; transition: .16s;
+}
+.prof.wide:hover .inst { border-color: var(--line-hi); }
+.prof.wide[aria-checked="true"] .inst {
+  background: rgba(36, 22, 5, .07); border-color: rgba(36, 22, 5, .4); color: var(--amber-ink);
+}
+.inst:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* ---------- volume ---------- */
+.slide { position: relative; height: 30px; flex: 1; min-width: 0; }
+.track {
+  position: absolute; inset: 10px 10px; border-radius: 999px; background: #212932;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+/* The filtered layer is taller than the liquid inside it: an SVG filter only
+   renders within its own box plus its region, so a tight box would clip the
+   drop at both ends of the rail. */
+.slide-goo { position: absolute; inset: 2px 10px; pointer-events: none; }
+.fill {
+  position: absolute; left: 0; top: 50%; height: 10px; width: calc(var(--v, .7) * 100%);
+  transform: translateY(-50%); border-radius: 999px; background: var(--amber);
+}
+.tip {
+  position: absolute; left: calc(var(--v, .7) * 100%); top: 50%; width: 15px; height: 15px;
+  border-radius: 50%; background: var(--amber); transform: translate(-50%, -50%);
+  transition: transform .12s ease;
+}
+.slide.dragging .tip { transform: translate(-50%, -50%) scale(1.22); }
+.slide input {
+  /* RTL pages mirror range inputs, which would put loud on the left. The fill
+     grows to the right, so the control has to stay left to right. */
+  direction: ltr; position: absolute; inset: 0; width: 100%; height: 100%;
+  -webkit-appearance: none; background: transparent; margin: 0; cursor: ew-resize;
+}
+.slide input::-webkit-slider-runnable-track { height: 30px; background: transparent; }
+.slide input::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; background: transparent; }
+.slide input:focus-visible ~ .track { outline: 2px solid var(--amber); outline-offset: 4px; }
+.volrow { display: flex; align-items: center; gap: 9px; }
+.volrow .pct { font-family: var(--spec); font-size: 15px; font-weight: 600; color: var(--amber); min-width: 52px; text-align: center; direction: ltr; }
+.btn {
+  padding: 6px 11px; border-radius: 9px; cursor: pointer; flex: 0 0 auto;
+  background: var(--plate); border: 1px solid var(--line); color: var(--text);
+  font-family: inherit; font-size: 11.5px; transition: .16s;
+}
+.btn:hover { border-color: var(--line-hi); background: #212a34; }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* ---------- options ---------- */
+.opt {
+  display: flex; align-items: center; gap: 10px;
+  border-top: 1px solid rgba(38,47,58,.7); margin-top: 5px; padding-top: 7px;
+}
+.opt .txt { font-size: 11.5px; color: var(--text); line-height: 1.5; }
+.opt .txt em { display: block; font-style: normal; font-size: 10px; color: var(--dim); line-height: 1.45; }
+.opt .grow { flex: 1; }
+/* The rows that belong to the one above them, not next to it. */
+.opt.sub { border-top-color: rgba(38,47,58,.45); padding-top: 5px; margin-top: 3px; }
+.opt.sub .txt { font-size: 11px; color: var(--muted); }
+/* The one consequence of exclusive mode that the person switching it on has to
+   see, so it takes the line the option's own explanation would have used. */
+.txt em.danger { color: #d9a2a2; }
+/* Why the room is quiet right now, in one line. */
+.chip {
+  display: none; margin-inline-start: auto; flex: 0 0 auto; align-items: center; gap: 5px;
+  font-size: 10px; white-space: nowrap; color: #f7cb93;
+  background: var(--amber-soft); border: 1px solid rgba(245,168,63,.45);
+  border-radius: 999px; padding: 2px 8px;
+}
+.chip.show { display: inline-flex; }
+.chip i { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); animation: breathe 1.6s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .2; } }
+
+/* ---------- what the engine is actually doing ---------- */
+/* Four numbers the engine already measures and the old window never showed. */
+.spec { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; margin-top: 7px;
+  padding-top: 7px; border-top: 1px dashed var(--line); }
+.spec div { display: flex; align-items: baseline; gap: 6px; font-size: 10.5px; color: var(--dim); }
+.spec b { margin-inline-start: auto; font-family: var(--spec); font-size: 11px; font-weight: 600;
+  color: var(--text); direction: ltr; unicode-bidi: isolate; }
+
+/* ---------- about ---------- */
+.about .head { align-items: center; }
+.about .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); flex: 0 0 auto; }
+.about .ver { font-family: var(--spec); font-size: 10.5px; color: var(--dim); direction: ltr; }
+.about p { font-size: 10.5px; color: var(--muted); line-height: 1.6; margin-bottom: 5px; }
+.links { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.link {
+  display: flex; align-items: center; gap: 6px; padding: 6px 7px; border-radius: 10px;
+  background: var(--plate); border: 1px solid var(--line); color: var(--text);
+  font-size: 11.5px; text-decoration: none; cursor: pointer; transition: .16s;
+}
+.link:hover { border-color: var(--line-hi); background: #212a34; }
+.link:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.link svg { width: 14px; height: 14px; flex: 0 0 auto; fill: var(--amber); }
+.link .u { font-family: var(--spec); font-size: 10.5px; direction: ltr; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- updates ---------- */
+/* Deliberately not a background service: one request when asked, one more when
+   the answer is fetched, and nothing is ever run by itself afterwards. */
+.upd { margin-top: 7px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.upd-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.upd-row .btn { font-size: 11px; padding: 5px 9px; }
+.upd-row .btn:disabled { color: var(--dim); cursor: default; }
+.upd-row a.btn { text-decoration: none; }
+.upd-row .check { margin-inline-start: auto; font-size: 10.5px; white-space: nowrap; }
+.upd-msg {
+  display: none; margin-top: 6px; font-size: 10.5px; color: var(--muted);
+  line-height: 1.65; word-break: break-word;
+}
+.upd-msg.show { display: block; }
+.upd-msg b { color: #f7cb93; font-weight: 600; }
+.upd-msg bdi { font-family: var(--spec); font-size: 10px; direction: ltr; unicode-bidi: isolate; }
+
+/* ---------- footer ---------- */
+footer { margin-top: auto; display: flex; flex-direction: column; gap: 5px; padding-top: 2px; }
+.check { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+.check input { accent-color: var(--amber); width: 14px; height: 14px; cursor: pointer; }
+.actions { display: flex; align-items: stretch; gap: 7px; }
+.actions .btn.primary {
+  flex: 1; padding: 7px 10px; font-size: 12px; text-align: center;
+  background: var(--amber-soft); border-color: rgba(245,168,63,.55); color: #f7cb93;
+}
+.actions .btn.primary:hover { background: rgba(245,168,63,.22); }
+/* The boot switch belongs to the button above it, so it hangs off the same
+   edge; in a right-to-left page that edge is the right one. */
+.check.boot { padding-inline-start: 3px; }
+/* Two languages, so this is a choice between two named things rather than a
+   toggle: each half keeps its own script, whichever way the page reads. */
+.seg { display: flex; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--plate); }
+.seg .sg {
+  padding: 0 10px; background: transparent; border: 0; color: var(--dim); cursor: pointer;
+  font-family: inherit; font-size: 11.5px; transition: .16s;
+}
+.seg .sg + .sg { border-inline-start: 1px solid var(--line); }
+.seg .sg:hover { color: var(--text); }
+.seg .sg[aria-checked="true"] { background: var(--amber-soft); color: #f7cb93; }
+.seg .sg:focus-visible { outline: 2px solid var(--amber); outline-offset: -2px; }
+.hint { font-size: 10px; color: var(--dim); text-align: center; line-height: 1.55; }
+#banner {
+  display: none; background: rgba(239,109,109,.11); border: 1px solid var(--danger);
+  color: #f6b0b0; border-radius: 11px; padding: 8px 10px; font-size: 11px; line-height: 1.7;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tip, .tgl .puck, .tgl .tail, .cap { transition: none !important; }
+  .blob { transition: none; }
+  .chip i { animation: none; }
+  .cap.wave::after { animation: none; }
+}
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- The gooey recipe: blur the alpha, then push it back to a hard edge with a
+     colour matrix, then lay the crisp source on top. Anything that overlaps
+     after the blur fuses into a single drop. The region is wider than the box
+     because the drop at the end of the volume rail hangs half outside it. -->
+<svg class="defs" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- σ=4 is what these shapes can survive: the filter only keeps alpha above
+         5/12, and a blurred 12px tail at σ=7 lands near 0.31 and disappears. -->
+    <filter id="goo-sm" x="-30%" y="-90%" width="160%" height="280%"
+            color-interpolation-filters="sRGB">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
+      <feColorMatrix in="blur" result="goo" type="matrix"
+        values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 12 -5" />
+      <feComposite in="SourceGraphic" in2="goo" operator="atop" />
+    </filter>
+  </defs>
+</svg>
+
+<div class="app">
+  <header>
+    <img class="mark" src="icon.png" width="36" height="36" alt="" />
+    <div class="titles">
+      <h1>MechKeys</h1>
+      <span class="eyebrow" id="eyebrow">mechanical switch audio</span>
+    </div>
+    <div class="grow"></div>
+    <div class="state"><b id="stateLat">—</b><span class="lbl" data-i18n="latency"></span></div>
+    <label class="tgl big" data-i18n-title="enableTip">
+      <input type="checkbox" id="enabled" data-i18n-aria="enableAria" />
+      <span class="rail"></span>
+      <span class="drops goo-sm"><i class="puck"></i><i class="tail"></i></span>
+    </label>
+  </header>
+
+  <div id="banner" role="alert"></div>
+
+  <section class="stage" data-i18n-title="boardTip">
+    <div class="board" id="board"></div>
+    <p class="boardline">
+      <span class="tag" id="boardTag">—</span>
+      <span id="boardWhat"></span>
+      <span class="who" id="boardKeys"></span>
+    </p>
+  </section>
+
+  <div class="tabs" role="tablist" data-i18n-aria="tabsAria">
+    <button class="tab" id="tabSwitch" role="tab" data-pane="paneSwitch" data-i18n="switch"></button>
+    <button class="tab" id="tabSound" role="tab" data-pane="paneSound" data-i18n="output"></button>
+    <button class="tab" id="tabAbout" role="tab" data-pane="paneAbout" data-i18n="about"></button>
+  </div>
+
+  <div class="panes">
+    <section class="pane" id="paneSwitch" role="tabpanel" aria-labelledby="tabSwitch">
+      <div class="card">
+        <!-- The tab above already names this pane, so the card only carries the
+             line the tab cannot fit. -->
+        <div class="head"><span class="note" data-i18n="switchNote"></span></div>
+        <div class="grid" id="grid" role="radiogroup" data-i18n-aria="switchAria">
+          <i class="blob" aria-hidden="true"></i>
+          <div class="prof wide" id="customTile" data-p="custom" role="radio" aria-checked="false" tabindex="0"
+               data-i18n-title="customTip">
+            <b>CUSTOM</b><small id="customWho"></small>
+            <select class="inst" id="inst" data-i18n-aria="instAria"></select>
+          </div>
+        </div>
+        <!-- The name is on the tile and under the board already; this line is
+             the one thing neither of them can say. -->
+        <p class="sw-desc" id="swDesc"></p>
+      </div>
+    </section>
+
+    <section class="pane" id="paneSound" role="tabpanel" aria-labelledby="tabSound" hidden>
+      <div class="card">
+        <div class="head"><span class="note" data-i18n="outputNote"></span></div>
+        <div class="volrow">
+          <div class="slide" id="slide" style="--v:.7">
+            <div class="slide-goo goo-sm" aria-hidden="true"><i class="fill"></i><i class="tip"></i></div>
+            <div class="track" aria-hidden="true"></div>
+            <input type="range" id="volume" min="0" max="100" step="1" value="70" data-i18n-aria="volAria" />
+          </div>
+          <span class="pct" id="volVal"></span>
+          <button class="btn" id="test" data-i18n="test"></button>
+        </div>
+        <div class="opt">
+          <label class="tgl">
+            <input type="checkbox" id="upSound" data-i18n-aria="upSound" />
+            <span class="rail"></span>
+            <span class="drops goo-sm"><i class="puck"></i><i class="tail"></i></span>
+          </label>
+          <span class="txt"><span data-i18n="upSound"></span><em data-i18n="upSoundNote"></em></span>
+        </div>
+        <div class="opt">
+          <label class="tgl">
+            <input type="checkbox" id="exclusive" data-i18n-aria="exclusive" />
+            <span class="rail"></span>
+            <span class="drops goo-sm"><i class="puck"></i><i class="tail"></i></span>
+          </label>
+          <span class="txt"><span data-i18n="exclusive"></span><em id="exNote" data-i18n="exclusiveNote"></em></span>
+        </div>
+        <div class="opt sub">
+          <label class="tgl">
+            <input type="checkbox" id="autoRelease" data-i18n-aria="autoRelease" />
+            <span class="rail"></span>
+            <span class="drops goo-sm"><i class="puck"></i><i class="tail"></i></span>
+          </label>
+          <span class="txt"><span data-i18n="autoRelease"></span><em data-i18n="autoReleaseNote"></em></span>
+          <span class="chip" id="exHold"><i></i><span data-i18n="holdChip"></span></span>
+        </div>
+        <div class="spec">
+          <div><span data-i18n="specBuffer"></span><b id="specBuffer">—</b></div>
+          <div><span data-i18n="specRate"></span><b id="specRate">—</b></div>
+          <div><span data-i18n="specMode"></span><b id="specMode">—</b></div>
+          <div><span data-i18n="specStrikes"></span><b id="specStrikes">0</b></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="pane" id="paneAbout" role="tabpanel" aria-labelledby="tabAbout" hidden>
+      <div class="card about">
+        <div class="head">
+          <i class="dot" aria-hidden="true"></i>
+          <span class="label" data-i18n="about"></span>
+          <span class="note ver" id="version">—</span>
+        </div>
+        <p data-i18n="aboutText"></p>
+        <div class="links">
+          <a class="link" id="gh" href="https://github.com/mohsenNBI" target="_blank" rel="noopener" title="https://github.com/mohsenNBI">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.3-1.8-1.3-1.8-1.1-.7 0-.7 0-.7 1.2.1 1.8 1.2 1.8 1.2 1.1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.8-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.4 4.7 18.4 5 18.4 5c.6 1.7.2 2.9.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A12 12 0 0 0 12 .3"/></svg>
+            <span class="u">github.com/mohsenNBI</span>
+          </a>
+          <a class="link" id="tg" href="https://t.me/Mohsen_vg" target="_blank" rel="noopener" title="https://t.me/Mohsen_vg">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2 2 10l7 3 3 7 10-18Z"/><path d="M9 13 22 2 11 15l1 5-3-7Z" opacity=".45"/></svg>
+            <span class="u">t.me/Mohsen_vg</span>
+          </a>
+        </div>
+        <div class="upd">
+          <div class="upd-row">
+            <button class="btn" id="chkUpd" data-i18n="checkUpdate"></button>
+            <button class="btn" id="dlUpd" hidden data-i18n="download"></button>
+            <a class="btn" id="pgUpd" href="#" hidden data-i18n="releasePage"></a>
+            <label class="check" data-i18n-title="autoCheckTip"><input type="checkbox" id="autoUpd" /><span data-i18n="autoCheck"></span></label>
+          </div>
+          <p class="upd-msg" id="updMsg"></p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <div class="actions">
+      <button class="btn primary" id="hide" data-i18n="hide" data-i18n-title="hideTip"></button>
+      <div class="seg" role="radiogroup" data-i18n-aria="langAria">
+        <button class="sg" id="langEn" type="button" role="radio" aria-checked="true" lang="en">English</button>
+        <button class="sg" id="langFa" type="button" role="radio" aria-checked="false" lang="fa">فارسی</button>
+      </div>
+    </div>
+    <label class="check boot" id="bootRow"><input type="checkbox" id="autostart" /><span data-i18n="autostart"></span></label>
+    <p class="hint" data-i18n="hint"></p>
+  </footer>
+</div>
+
+<script>
+  const { invoke } = window.__TAURI__.core;
+  const $ = (id) => document.getElementById(id);
+
+  /* ---------- the words ---------- */
+  /* Every sentence this page can say, as [fa, en]. The two lists have to stay
+     the same shape; the language test at the bottom of the script checks it. */
+  const T = {
+    latency: ["تأخیر", "Latency"],
+    enableTip: ["صدا را روشن یا خاموش می‌کند", "Turns the sound on or off"],
+    enableAria: ["روشن بودن صدا", "Sound on"],
+    boardTip: ["هر کلیدِ واقعیِ صفحه‌کلید همین‌جا روشن می‌شود؛ با کلیک روی هر کی‌کپ همان کلید را می‌شنوید.",
+               "Every real keystroke lights a cap here; click a cap to hear that key."],
+    boardKeys: [" کلید", " keys"],
+    tabsAria: ["بخش‌های تنظیمات", "Setting sections"],
+    switch: ["سوئیچ", "Switch"],
+    switchNote: ["هر کلید صدا و رزونانس خودش", "Every key has its own voice"],
+    switchAria: ["نوع سوئیچ", "Switch type"],
+    customTip: ["به‌جای سوئیچ، یک ساز روی کلیدها پخش می‌شود", "Instead of a switch, the keys play an instrument"],
+    customWho: ["سازِ دلخواه", "Pick an instrument"],
+    instAria: ["انتخاب ساز", "Instrument"],
+    output: ["صدا و خروجی", "Sound and output"],
+    outputNote: ["ولومِ صدای کلیدها، نه ولومِ ویندوز", "The volume of the switches, not of Windows"],
+    volAria: ["میزان صدا", "Volume"],
+    test: ["پخش آزمایشی", "Test sound"],
+    exclusive: ["حالت انحصاری", "Exclusive mode"],
+    exclusiveNote: ["کمترین تأخیر؛ صفحه‌نمایش صوتی را در انحصار می‌گیرد.",
+                    "Lowest latency; takes the audio device for itself."],
+    exclusiveWarn: ["صدای هیچ برنامهٔ دیگری پخش نمی‌شود؛ برای موزیک خاموشش کنید.",
+                    "No other app can make sound. Turn it off for music."],
+    autoRelease: ["آزادسازی خودکار", "Auto release"],
+    autoReleaseNote: ["وقتی فیلم یا کلیپ پخش می‌شود انحصار بیرون داده می‌شود؛ با نخستین تایپ برمی‌گردد.",
+                      "Gives the device back during audio; back when you type."],
+    holdChip: ["موقتاً آزاد شد", "Released for now"],
+    upSound: ["صدای رها کردن کلید", "Key release sound"],
+    upSoundNote: ["همان تقِ کوتاهِ برگشت کی‌کپ.", "The short tick of the keycap coming back."],
+    specBuffer: ["سازگار خروجی", "Output buffer"],
+    specRate: ["نرخ نمونه", "Sample rate"],
+    specMode: ["حالت", "Mode"],
+    specStrikes: ["کلیدها", "Keys"],
+    modeShared: ["مشترک", "Shared"],
+    modeExclusive: ["انحصاری", "Exclusive"],
+    about: ["درباره MechKeys", "About MechKeys"],
+    aboutText: ["صدای سوئیچ‌های مکانیکی، ضبط‌شده روی برد واقعی، با قلاب سراسری و WASAPI. هر کلیدِ صفحه‌کلید گام و رزونانس خودش را دارد.",
+                "Mechanical switch sound, recorded on a real board, with a global hook and WASAPI output. Every key on the board has its own pitch and resonance."],
+    checkUpdate: ["بررسی به‌روزرسانی", "Check for update"],
+    checking: ["در حال بررسی…", "Checking…"],
+    download: ["دریافت نصب‌کننده", "Download installer"],
+    downloading: ["در حال دریافت…", "Downloading…"],
+    releasePage: ["صفحهٔ انتشار", "Release page"],
+    autoCheck: ["بررسی خودکار", "Check automatically"],
+    autoCheckTip: ["هنگام اجرای برنامه، یک بار گیت‌هاب پرسیده می‌شود.",
+                   "Asks GitHub once, when the program starts."],
+    upToDate: ["این نسخه، تازه‌ترین انتشار است.", "This build is the newest release."],
+    newVersion: ["نسخهٔ ", "Version "],
+    published: [" منتشر شدهٔ ", ", published "],
+    savedTo: ["نصب‌کننده در این پوشه ذخیره شد: ", "Installer saved to "],
+    runIt: [" برای نصب، خودش را اجرا کنید.", " Run it yourself to install."],
+    hide: ["پنهان کردن", "Hide"],
+    hideTip: ["پنجره بسته می‌شود ولی برنامه اجرا می‌ماند و صدا ادامه دارد. نشانهٔ MechKeys کنار ساعتِ ویندوز می‌ماند؛ با یک کلیک روی آن پنجره بازمی‌گردد.",
+              "The window closes and the sound keeps going. The MechKeys icon stays by the Windows clock; click it to bring the window back."],
+    autostart: ["اجرای خودکار با ویندوز", "Start with Windows"],
+    hint: ["با بستن پنجره صدا خاموش نمی‌شود؛ نشانهٔ MechKeys کنار ساعتِ ویندوز می‌ماند. با کلیک روی آن پنجره بازمی‌گردد و با راست‌کلیک می‌توانید خارج شوید.",
+           "Closing the window does not mute anything: the MechKeys icon stays by the Windows clock. Click it to bring the window back, right-click it to quit."],
+    langAria: ["زبان رابط برنامه", "Interface language"],
+    // Things that can go wrong. Text that arrives from GitHub or from Windows is
+    // quoted as it came, never looked up here.
+    errAudio: ["خروجی صدا", "Audio output"],
+    errHook: ["قلاب کیبورد", "Keyboard hook"],
+    errSessions: ["نظارت بر خروجی صدا", "Audio device monitor"],
+    errStart: ["خطا", "Error"],
+    openFailed: ["باز نشد", "Could not open"],
+    downloadFailed: ["دریافت نشد", "Download failed"],
+    autostartFailed: ["اجرای خودکار تنظیم نشد", "Autostart could not be set"],
+    httpsOnly: ["فقط نشانی‌های https باز می‌شوند", "Only https addresses can be opened"],
+    checkFirst: ["اول نسخهٔ جدید را بررسی کنید", "Check for an update first"],
+    instrumentScale: [" چپ‌به‌راستِ صفحه‌کلید، نُت‌های پلهٔ دو می‌نوازد.",
+                      " — the keys play a C major scale from the left of the board to the right."],
+  };
+
+  /* [fa, en] for the short name of a voice and for its description. */
+  const SWITCHES = [
+    { p: "mx-blue",    n: "MX BLUE",     t: ["کلیکی", "Clicky"],   d: ["کلیکِ بلند و مشخصِ چری؛ همان صدایی که اداره را از پشت دیوار می‌شنود.",
+                                                                       "Cherry's loud, unmistakable click — the one the next desk hears through the wall."] },
+    { p: "mx-brown",   n: "MX BROWN",    t: ["تاکتایل", "Tactile"], d: ["برآمدگیِ نرم زیر انگشت، بی‌هیچ تقِ اضافه.",
+                                                                        "A soft bump under the finger and no click on top of it."] },
+    { p: "mx-black",   n: "MX BLACK",    t: ["خطی", "Linear"],   d: ["فشارِ یکنواخت و سنگین؛ صدا فقط برخوردِ کی‌کپ با بدنه است.",
+                                                                     "Even, weighted travel; all you hear is the keycap meeting the housing."] },
+    { p: "holy-panda", n: "HOLY PANDA",  t: ["تاکتایل", "Tactile"], d: ["برآمدگیِ کوتاه و تیز، ترکیبِ بدنهٔ SP و فنجرِ Alps.",
+                                                                        "A short, sharp bump: an SP housing around an Alps stem."] },
+    { p: "topre",      n: "TOPRE",       t: ["کاسه‌ای", "Dome"],   d: ["تقِ پرخون و بمِ کاسهٔ لاستیکی؛ امضای HHKB.",
+                                                                       "The deep, fleshy thock of a rubber dome — the HHKB signature."] },
+    { p: "cream",      n: "NK CREAM",    t: ["خطی", "Linear"],   d: ["تق‌تقِ چوبیِ پلاستیکِ سخت؛ انتخابِ کیبوردهای مسابقه‌ای.",
+                                                                     "The woody knock of hard plastic; the racing-board choice."] },
+    { p: "alpaca",     n: "ALPACA",      t: ["خطی", "Linear"],   d: ["روان و صیقلی با انتهایِ کمی فلزی.",
+                                                                     "Smooth and polished, with a slightly metallic tail."] },
+    { p: "ink-black",  n: "INK BLACK",   t: ["خطی", "Linear"],   d: ["بستِ نرم و عمیق؛ ژاتهٔ بی‌صدا با بدنهٔ صیقلی.",
+                                                                     "A soft, deep bottom-out: a quiet linear in a polished housing."] },
+    { p: "ink-red",    n: "INK RED",     t: ["خطی", "Linear"],   d: ["همان روانیِ اینک، با صدایِ بازتر و کی‌کپِ سبک‌تر.",
+                                                                     "The same Ink smoothness, more open and with a lighter keycap."] },
+    { p: "box-navy",   n: "BOX NAVY",    t: ["کلیکی", "Clicky"],   d: ["بلندترین و تیزترینِ این فهرست؛ دو نقطهٔ اصطکاک در یک فنجر.",
+                                                                       "The loudest and sharpest here: two click fences in one stem."] },
+    { p: "alps-blue",  n: "ALPS BLUE",   t: ["تاکتایل", "Tactile"], d: ["کلیکِ فلزیِ اوژن‌دارِ دههٔ هشتاد؛ همین حالا منسوخ و همین حالا دوست‌داشتنی.",
+                                                                        "The eighties Eugene metal click — discontinued, and loved for it."] },
+    { p: "model-m",    n: "MODEL M",     t: ["فنری", "Spring"],    d: ["فنرِ کله‌قندیِ IBM؛ صدایی که استانداردِ «کیبورد مکانیکی» شد.",
+                                                                       "IBM's buckling spring: the sound that set the standard for what a mechanical keyboard is."] },
+  ];
+
+  // Rendered, not recorded: the bank for these is built when one is picked.
+  const INSTRUMENTS = [
+    { p: "piano",   n: "PIANO",   t: ["چکش روی سیم", "Hammer & string"], d: ["پیانوی آکوستیک: چکشِ نمدی، هارمونیک‌های کمی تیزِ سیمِ خشک، و دمی که با هر نُت کوتاه‌تر می‌شود.",
+                                                                            "Acoustic piano: a felt hammer, the slightly bright harmonics of a dry string, and a tail that shortens with every note."] },
+    { p: "epiano",  n: "EPIANO",  t: ["تینِ FM", "FM tine"],   d: ["پیانوی برقی: اپراتوری که ایندکسِاش در یک‌پنجمِ ثانیه فرو می‌ریزد؛ همان «آه»ِ بالادهای دههٔ هشتاد.",
+                                                                   "Electric piano: an operator whose index collapses in a fifth of a second — the sigh of eighties ballads."] },
+    { p: "marimba", n: "MARIMBA", t: ["میلهٔ چوبی", "Wooden bar"],  d: ["ماریمبا: بدنهٔ چوبیِ گرد با ضربهٔ کوتاهِ مالات؛ گرم و زودخاموش.",
+                                                                        "Marimba: a rounded wooden bar under a short mallet hit; warm, and quick to go."] },
+    { p: "bell",    n: "BELL",    t: ["زرِ فلزی", "Metal bell"],    d: ["زنگوله: هارمونیک‌های ناهم‌سازِ فلز، با درازترین دمِ این فهرست.",
+                                                                        "Bell: metal's inharmonic partials, with the longest tail in this list."] },
+    { p: "guitar",  n: "GUITAR",  t: ["مضراب", "Strum"], d: ["گیتارِ سیم‌فولادی: مضراب در یک‌ششمِ طولِ سیم؛ تیز شروع می‌شود و بم تمام می‌شود.",
+                                                             "Steel-string guitar: picked at a sixth of the string's length; it starts bright and ends low."] },
+  ];
+
+  /* ---------- the board ---------- */
+  /* A 65% board: one row at a time, in quarter-unit widths, so the grid can
+     carry a 1.25u Ctrl and a 4.5u space bar in the same sixty columns, with the
+     arrow cluster notched into the bottom right corner the way it sits on a
+     real one. Each key carries the virtual key the hook reports and the scan
+     code the sound engine routes by, which is what makes a click on a cap sound
+     like that cap and not like its neighbour. Both shift, ctrl and alt keys name
+     their left and right codes, since Windows reports the side and the board
+     shows one cap. */
+  const EXT = 0x100;
+  const BOARD = [
+    [["Esc", 0x1b, 0x01, 1], ["F1", 0x70, 0x3b, 1], ["F2", 0x71, 0x3c, 1], ["F3", 0x72, 0x3d, 1],
+     ["F4", 0x73, 0x3e, 1], ["F5", 0x74, 0x3f, 1], ["F6", 0x75, 0x40, 1], ["F7", 0x76, 0x41, 1],
+     ["F8", 0x77, 0x42, 1], ["F9", 0x78, 0x43, 1], ["F10", 0x79, 0x44, 1], ["F11", 0x7a, 0x57, 1],
+     ["F12", 0x7b, 0x58, 1], ["PRT", 0x2c, 0x37 | EXT, 1], ["SCR", 0x90, 0x46, 1]],
+    [["~", 0xc0, 0x29, 1], ["1", 0x31, 0x02, 1], ["2", 0x32, 0x03, 1], ["3", 0x33, 0x04, 1],
+     ["4", 0x34, 0x05, 1], ["5", 0x35, 0x06, 1], ["6", 0x36, 0x07, 1], ["7", 0x37, 0x08, 1],
+     ["8", 0x38, 0x09, 1], ["9", 0x39, 0x0a, 1], ["0", 0x30, 0x0b, 1], ["-", 0xbd, 0x0c, 1],
+     ["=", 0xbb, 0x0d, 1], ["⌫", 0x08, 0x0e, 2]],
+    [["⇥", 0x09, 0x0f, 1.5], ["Q", 0x51, 0x10, 1], ["W", 0x57, 0x11, 1], ["E", 0x45, 0x12, 1],
+     ["R", 0x52, 0x13, 1], ["T", 0x54, 0x14, 1], ["Y", 0x59, 0x15, 1], ["U", 0x55, 0x16, 1],
+     ["I", 0x49, 0x17, 1], ["O", 0x4f, 0x18, 1], ["P", 0x50, 0x19, 1], ["[", 0xdb, 0x1a, 1],
+     ["]", 0xdd, 0x1b, 1], ["\\", 0xdc, 0x2b, 1.5]],
+    [["⇪", 0x14, 0x3a, 1.75], ["A", 0x41, 0x1e, 1], ["S", 0x53, 0x1f, 1], ["D", 0x44, 0x20, 1],
+     ["F", 0x46, 0x21, 1], ["G", 0x47, 0x22, 1], ["H", 0x48, 0x23, 1], ["J", 0x4a, 0x24, 1],
+     ["K", 0x4b, 0x25, 1], ["L", 0x4c, 0x26, 1], [";", 0xba, 0x27, 1], ["'", 0xde, 0x28, 1],
+     ["⏎", 0x0d, 0x1c, 2.25]],
+    [["⇧", [0xa0, 0x10], 0x2a, 2.25], ["Z", 0x5a, 0x2c, 1], ["X", 0x58, 0x2d, 1], ["C", 0x43, 0x2e, 1],
+     ["V", 0x56, 0x2f, 1], ["B", 0x42, 0x30, 1], ["N", 0x4e, 0x31, 1], ["M", 0x4d, 0x32, 1],
+     [",", 0xbc, 0x33, 1], [".", 0xbe, 0x34, 1], ["/", 0xbf, 0x35, 1],
+     ["⇧", [0xa1, 0x10], 0x36, 1.75], ["↑", 0x26, 0x48 | EXT, 1]],
+    [["Ctrl", [0xa2, 0x11], 0x1d, 1.25], ["Win", 0x5b, 0x5b | EXT, 1.25], ["Alt", [0xa4, 0x12], 0x38, 1.25],
+     ["Space", 0x20, 0x39, 4.5], ["Alt", [0xa5, 0x12], 0x38 | EXT, 1.25], ["Fn", 0, 0, 1.25],
+     ["Ctrl", [0xa3, 0x11], 0x1d | EXT, 1.25],
+     ["←", 0x25, 0x4b | EXT, 1], ["↓", 0x28, 0x50 | EXT, 1], ["→", 0x27, 0x4d | EXT, 1]],
+  ];
+
+  /* Which cap a reported virtual key belongs to. The two sides of a modifier
+     share one drawing, so both codes point at it. */
+  const CAPS = new Map();
+  /* The board row by row, so the arrow keys can walk it. Seventy-nine caps are
+     seventy-nine tab stops, which would bury everything below the board; the
+     board is one stop to Tab and a grid to the arrows instead. */
+  const GRID = [];
+
+  function addCap(el, vk) {
+    for (const one of Array.isArray(vk) ? vk : [vk]) {
+      if (one) CAPS.set(one, el);
+    }
+  }
+
+  function walkCap(from, dx, dy) {
+    let r = +from.dataset.r;
+    let c = +from.dataset.c + dx;
+    const row = GRID[r];
+    if (dx) c = (c + row.length) % row.length;
+    r = Math.max(0, Math.min(GRID.length - 1, r + dy));
+    const to = GRID[r][Math.min(c, GRID[r].length - 1)];
+    if (to === from) return;
+    from.tabIndex = -1;
+    to.tabIndex = 0;
+    to.focus();
+  }
+
+  function makeCap(label, vk, scan, units) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "cap";
+    b.textContent = label;
+    b.style.gridColumn = "span " + Math.round(units * 4);
+    b.title = label;
+    b.tabIndex = -1;
+    addCap(b, vk);
+    b.onclick = () => {
+      if (!scan) return;
+      strike(b);
+      invoke("test_key", { vk: Array.isArray(vk) ? vk[0] : vk, scan });
+    };
+    b.onkeydown = (e) => {
+      const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (!d) return;
+      e.preventDefault();
+      walkCap(b, d[0], d[1]);
+    };
+    return b;
+  }
+
+  function buildBoard() {
+    const board = $("board");
+    for (const row of BOARD) {
+      const made = [];
+      for (const [label, vk, scan, units] of row) {
+        const c = makeCap(label, vk, scan, units);
+        c.dataset.r = GRID.length;
+        c.dataset.c = made.length;
+        made.push(c);
+        board.appendChild(c);
+      }
+      GRID.push(made);
+    }
+    // Start the walk on the number row, where a hand already is.
+    const start = GRID[1][1];
+    start.tabIndex = 0;
+  }
+
+  /* A strike is two timers: the cap itself comes back up in a little over a
+     tenth of a second, and the ring it leaves behind runs longer than that, so
+     a fast passage reads as a trail rather than as a strobe. */
+  const held = new Map();
+  function strike(cap) {
+    cap.classList.add("hit", "wave");
+    const timers = held.get(cap);
+    if (timers) { clearTimeout(timers[0]); clearTimeout(timers[1]); }
+    held.set(cap, [
+      setTimeout(() => cap.classList.remove("hit"), 115),
+      setTimeout(() => { cap.classList.remove("wave"); held.delete(cap); }, 400),
+    ]);
+  }
+
+  async function catchUp() {
+    let vks = [];
+    try { vks = await invoke("recent_keys"); } catch (e) { return; }
+    for (let i = 0; i < vks.length; i++) {
+      const cap = CAPS.get(vks[i]);
+      if (!cap) continue;
+      // A run of keys that all arrived while the window was not looking replays
+      // in order instead of all at once, up to the length of the ring.
+      if (i < 12) setTimeout(() => strike(cap), i * 34);
+      else strike(cap);
+    }
+  }
+
+  let lang = "en", profile = "", volTimer = null, volLast = 0;
+  let notes = [], upd = null, busy = null;
+
+  const tr = (key) => T[key][lang === "fa" ? 0 : 1];
+  const pick = (pair) => pair[lang === "fa" ? 0 : 1];
+  // Persian digits and a percent sign that sits on the right of the number.
+  const pctText = (n) => (lang === "fa" ? Number(n).toLocaleString("fa-IR") + "٪" : n + "%");
+  const num = (n) => (lang === "fa" ? Number(n).toLocaleString("fa-IR") : String(n));
+  // Rust reports a failure it can name as a code, so the sentence stays here.
+  const SAID = { "https-only": "httpsOnly", "check-first": "checkFirst" };
+  const ERR_LABEL = { audio: "errAudio", hook: "errHook", sessions: "errSessions" };
+  const said = (e) => (SAID[e] ? tr(SAID[e]) : String(e));
+
+  /* ---------- the travelling tile ---------- */
+  const blob = document.querySelector(".blob");
+  let at = null;
+
+  function boxOf(card) {
+    const g = $("grid").getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    return { left: c.left - g.left, top: c.top - g.top, width: c.width, height: c.height };
+  }
+
+  function place(card, animate) {
+    // A card on a tab that is not showing has no box at all, and measuring it
+    // would park the tile on the top left corner of nothing.
+    if (!card.offsetParent) return;
+    const b = boxOf(card);
+    // The tile has to be parked before it can slide, so the first placement and
+    // every resize jump instead of animating from wherever it last was.
+    blob.style.transition = animate && at ? "" : "none";
+    blob.style.left = b.left + "px";
+    blob.style.top = b.top + "px";
+    blob.style.width = b.width + "px";
+    blob.style.height = b.height + "px";
+    void blob.offsetWidth;
+    blob.style.transition = "";
+    at = b;
+  }
+
+  function reposition() {
+    const active = document.querySelector('.prof[aria-checked="true"]');
+    if (active) place(active, false);
+  }
+
+  /* ---------- the voice cards ---------- */
+  const CARDS = new Map();
+  const OPTIONS = [];
+
+  function buildCards() {
+    const grid = $("grid");
+    const custom = $("customTile");
+    for (const s of SWITCHES) {
+      const b = document.createElement("button");
+      b.className = "prof";
+      b.type = "button";
+      b.dataset.p = s.p;
+      const name = b.appendChild(document.createElement("b"));
+      const kind = b.appendChild(document.createElement("small"));
+      CARDS.set(s.p, { b, name, kind });
+      b.onclick = () => pickProfile(s.p);
+      grid.insertBefore(b, custom);
+    }
+    for (const s of INSTRUMENTS) {
+      const o = document.createElement("option");
+      o.value = s.p;
+      OPTIONS.push([o, s]);
+      $("inst").appendChild(o);
+    }
+  }
+
+  function paintCards() {
+    for (const s of SWITCHES) {
+      const c = CARDS.get(s.p);
+      c.name.textContent = s.n;
+      c.kind.textContent = pick(s.t);
+      c.b.title = s.n + " — " + pick(s.t);
+    }
+    for (const [o, s] of OPTIONS) o.textContent = pick(s.t);
+  }
+
+  function paintProfile(name, animate) {
+    profile = name;
+    const inst = INSTRUMENTS.find((x) => x.p === name) || null;
+    const s = inst || SWITCHES.find((x) => x.p === name) || SWITCHES[0];
+    document.querySelectorAll(".prof").forEach((b) => {
+      // The wide card stands for all five instruments, so it is the checked one
+      // whichever of them the pull-down holds.
+      const on = inst ? b.dataset.p === "custom" : b.dataset.p === name;
+      b.setAttribute("aria-checked", on ? "true" : "false");
+      if (on) place(b, animate && at !== null);
+    });
+    if (inst) $("inst").value = inst.p;
+    $("customWho").textContent = inst ? pick(inst.t) : tr("customWho");
+    $("swDesc").textContent = inst ? pick(s.d) + tr("instrumentScale") : pick(s.d);
+    // The line under the board says what the board is wearing right now.
+    $("boardTag").textContent = s.n;
+    $("boardWhat").textContent = inst ? pick(inst.t) : pick(s.t);
+  }
+
+  function pickProfile(name) {
+    if (profile === name) { invoke("test_sound"); return; }
+    invoke("set_profile", { profile: name });
+    paintProfile(name, true);
+    invoke("test_sound");
+  }
+
+  /* ---------- tabs ---------- */
+  const TABS = ["tabSwitch", "tabSound", "tabAbout"];
+  let tab = "tabSwitch";
+
+  function showTab(next) {
+    tab = next;
+    for (const id of TABS) {
+      const on = id === next;
+      const t = $(id);
+      t.setAttribute("aria-selected", String(on));
+      t.tabIndex = on ? 0 : -1;
+      $(t.dataset.pane).hidden = !on;
+    }
+    // The tile was measured against cards that may have been hidden when it was
+    // last placed, so it gets re-measured the moment they are on screen again.
+    reposition();
+  }
+
+  function wireTabs() {
+    for (let i = 0; i < TABS.length; i++) {
+      const id = TABS[i];
+      $(id).onclick = () => showTab(id);
+      $(id).onkeydown = (e) => {
+        const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        const next = TABS[(i + d + TABS.length) % TABS.length];
+        showTab(next);
+        $(next).focus();
+      };
+    }
+  }
+
+  /* ---------- gooey slider ---------- */
+  function paintSlider(v) {
+    $("slide").style.setProperty("--v", (v / 100).toFixed(3));
+    $("volVal").textContent = pctText(Math.round(v));
+  }
+  /* Exclusive mode has one consequence worth reading twice, and the pane has
+     room for exactly one line per option, so it borrows this option's own. */
+  function paintExclusive(on) {
+    const em = $("exNote");
+    em.textContent = tr(on ? "exclusiveWarn" : "exclusiveNote");
+    em.classList.toggle("danger", on);
+  }
+  function pushVolume(v) {
+    const t = performance.now();
+    if (t - volLast > 110) { volLast = t; invoke("set_volume", { volume: v }); }
+    else { clearTimeout(volTimer); volTimer = setTimeout(() => invoke("set_volume", { volume: v }), 130); }
+  }
+
+  /* ---------- lines that can go wrong ----------
+     Each one is stored as a function of the language rather than as finished
+     text, so switching languages rewords what is already on screen. Anything
+     that came from Windows or GitHub is quoted as it arrived. */
+  function showNotes(list) { notes = list; paintNotes(); }
+  function paintNotes() {
+    const el = $("banner");
+    el.style.display = notes.length ? "block" : "none";
+    el.textContent = notes.map((say) => say()).join(" • ");
+  }
+
+  /* ---------- updates ---------- */
+  // Release notes and file names arrive off the network, so they are laid down
+  // as text nodes and never as markup.
+  function showUpd(say) { upd = say; paintUpd(); }
+  function paintUpd() {
+    const el = $("updMsg");
+    const parts = upd ? upd() : null;
+    el.textContent = "";
+    el.style.display = parts ? "block" : "none";
+    if (!parts) return;
+    for (const p of parts) {
+      if (typeof p === "string") { el.appendChild(document.createTextNode(p)); continue; }
+      const n = el.appendChild(document.createElement(p.tag));
+      n.textContent = p.text;
+    }
+  }
+
+  function paintButtons() {
+    const chk = $("chkUpd"), dl = $("dlUpd");
+    chk.disabled = busy === "checking";
+    chk.textContent = chk.disabled ? tr("checking") : tr("checkUpdate");
+    dl.disabled = busy === "downloading";
+    dl.textContent = dl.disabled ? tr("downloading") : tr("download");
+  }
+
+  async function checkUpdate(quiet) {
+    if (!quiet) { busy = "checking"; paintButtons(); }
+    try {
+      const u = await invoke("check_update");
+      if (!u.available) {
+        showUpd(quiet ? null : () => [tr("upToDate")]);
+        $("dlUpd").hidden = true;
+        $("pgUpd").hidden = true;
+        return;
+      }
+      const first = (u.notes || "").split("\n")[0].slice(0, 90);
+      showUpd(() => [
+        { tag: "b", text: tr("newVersion") + u.version },
+        (u.published ? tr("published") + u.published : "") + (first ? ". " + first : "."),
+      ]);
+      $("dlUpd").hidden = false;
+      $("pgUpd").hidden = false;
+      $("pgUpd").onclick = (e) => {
+        e.preventDefault();
+        invoke("open_url", { url: u.page }).catch((err) => showUpd(() => [tr("openFailed") + ": " + said(err)]));
+      };
+    } catch (err) {
+      // A failed check is only worth a line when somebody asked for it; the
+      // startup peek stays silent unless it has good news.
+      if (!quiet) showUpd(() => [said(err)]);
+    } finally {
+      busy = null;
+      paintButtons();
+    }
+  }
+
+  async function downloadUpdate() {
+    busy = "downloading";
+    paintButtons();
+    try {
+      const path = await invoke("download_update");
+      showUpd(() => [tr("savedTo"), { tag: "bdi", text: path }, tr("runIt")]);
+      $("dlUpd").hidden = true;
+    } catch (err) {
+      showUpd(() => [tr("downloadFailed") + ": " + said(err)]);
+    } finally {
+      busy = null;
+      paintButtons();
+    }
+  }
+
+  /* ---------- language ---------- */
+  function applyLang(next) {
+    lang = next === "fa" ? "fa" : "en";
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === "fa" ? "rtl" : "ltr";
+    document.querySelectorAll("[data-i18n]").forEach((el) => (el.textContent = tr(el.dataset.i18n)));
+    document.querySelectorAll("[data-i18n-title]").forEach((el) => (el.title = tr(el.dataset.i18nTitle)));
+    document.querySelectorAll("[data-i18n-aria]").forEach((el) => el.setAttribute("aria-label", tr(el.dataset.i18nAria)));
+    $("langEn").setAttribute("aria-checked", String(lang === "en"));
+    $("langFa").setAttribute("aria-checked", String(lang === "fa"));
+    // The names of things live in the same dictionary, only further down.
+    paintCards();
+    paintButtons();
+    paintProfile(profile, false);
+    paintSlider(+$("volume").value);
+    paintExclusive($("exclusive").checked);
+    paintNotes();
+    paintUpd();
+    paintSpec(lastStats);
+  }
+
+  function setLang(next) {
+    if (next === lang) return;
+    applyLang(next);
+    invoke("set_lang", { lang });
+  }
+
+  /* ---------- the engine's own numbers ---------- */
+  let lastStats = null;
+  function paintSpec(s) {
+    if (!s) return;
+    const ms = s.sampleRate ? (s.cbFrames * 1000 / s.sampleRate) : 0;
+    $("specBuffer").textContent = ms ? ms.toFixed(2) + " ms" : "—";
+    $("specRate").textContent = s.sampleRate ? (s.sampleRate / 1000).toFixed(1) + " kHz" : "—";
+    $("specMode").textContent = s.exclusive ? tr("modeExclusive") : tr("modeShared");
+    $("specStrikes").textContent = num(s.keys);
+    $("boardKeys").textContent = num(s.keys) + tr("boardKeys");
+  }
+
+  /* ---------- wiring ---------- */
+  async function init() {
+    buildBoard();
+    buildCards();
+    wireTabs();
+    showTab("tabSwitch");
+    applyLang("en");
+
+    const custom = $("customTile");
+    const inst = $("inst");
+    // The tile is the radio; the pull-down inside it says which voice it means.
+    custom.onclick = () => pickProfile(inst.value);
+    custom.onkeydown = (e) => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); pickProfile(inst.value); }
+    };
+    inst.onclick = (e) => e.stopPropagation();
+    inst.onchange = () => pickProfile(inst.value);
+
+    const s = await invoke("get_state");
+    $("enabled").checked = s.enabled;
+    $("volume").value = Math.round(s.volume * 100);
+    $("upSound").checked = s.upSound;
+    $("exclusive").checked = !!s.exclusive;
+    $("autoRelease").checked = !!s.autoRelease;
+    $("autoUpd").checked = !!s.checkUpdates;
+    $("autostart").checked = s.autostart;
+    $("version").textContent = "v" + s.version;
+    $("eyebrow").textContent = "v" + s.version + " · wasapi";
+    applyLang(s.lang);
+    paintProfile(s.profile, false);
+    if (s.errors && s.errors.length) {
+      showNotes(s.errors.map((e) => () => (ERR_LABEL[e.kind] ? tr(ERR_LABEL[e.kind]) + ": " : tr("errStart") + ": ") + e.message));
+    }
+
+    // Vazirmatn and Plex land after first paint, which reflows every card; the
+    // tile is placed from measured rects, so it has to be re-measured once they
+    // are there.
+    document.fonts.ready.then(reposition);
+
+    // Tauri's webview has no browser to open a tab in, so the links hand the
+    // address to the shell themselves.
+    for (const id of ["gh", "tg"]) {
+      $(id).onclick = (e) => {
+        e.preventDefault();
+        invoke("open_url", { url: e.currentTarget.href }).catch((err) => {
+          const text = said(err);
+          showNotes([() => tr("openFailed") + ": " + text]);
+        });
+      };
+    }
+
+    $("enabled").onchange = (e) => invoke("set_enabled", { enabled: e.target.checked });
+    $("volume").addEventListener("pointerdown", () => $("slide").classList.add("dragging"));
+    addEventListener("pointerup", () => $("slide").classList.remove("dragging"));
+    $("volume").oninput = (e) => { paintSlider(e.target.value); pushVolume(e.target.value / 100); };
+    $("upSound").onchange = (e) => invoke("set_up_sound", { enabled: e.target.checked });
+    $("exclusive").onchange = (e) => {
+      paintExclusive(e.target.checked);
+      invoke("set_exclusive", { enabled: e.target.checked });
+    };
+    $("autoRelease").onchange = (e) => invoke("set_auto_release", { enabled: e.target.checked });
+    $("chkUpd").onclick = () => checkUpdate(false);
+    $("dlUpd").onclick = () => downloadUpdate();
+    $("autoUpd").onchange = (e) => {
+      invoke("set_check_updates", { enabled: e.target.checked });
+      if (e.target.checked) checkUpdate(true);
+    };
+    $("test").onclick = () => invoke("test_sound");
+    $("hide").onclick = () => invoke("hide_window");
+    $("langEn").onclick = () => setLang("en");
+    $("langFa").onclick = () => setLang("fa");
+    $("autostart").onchange = async (e) => {
+      try { e.target.checked = await invoke("set_autostart", { enabled: e.target.checked }); }
+      catch (err) {
+        e.target.checked = false;
+        const text = said(err);
+        showNotes([() => tr("autostartFailed") + ": " + text]);
+      }
+    };
+    // Once, a few seconds in: the window and the sound are already up, and a
+    // slow network must not hold either of them back.
+    if (s.checkUpdates) setTimeout(() => checkUpdate(true), 3000);
+  }
+
+  let slow = 0;
+  async function tick() {
+    catchUp();
+    // The readouts are a quarter of a second behind the board and nobody minds;
+    // the keys are not.
+    if (++slow % 4) return;
+    slow = 0;
+    try {
+      const s = await invoke("stats");
+      lastStats = s;
+      const ms = s.latencyUs ? (s.latencyUs / 1000).toFixed(1) : "—";
+      const text = ms + " ms";
+      // Each write is a layout touch, so the readouts only get rewritten when
+      // they actually change.
+      if ($("stateLat").textContent !== text) $("stateLat").textContent = text;
+      if ($("enabled").checked !== s.enabled) $("enabled").checked = s.enabled;
+      if ($("upSound").checked !== s.upSound) $("upSound").checked = s.upSound;
+      const holding = !!s.holding;
+      if ($("exHold").classList.contains("show") !== holding) $("exHold").classList.toggle("show", holding);
+      paintSpec(s);
+    } catch (e) {
+      /* window is closing */
+    }
+  }
+
+  addEventListener("resize", reposition);
+
+  init().then(() => setInterval(tick, 90));
+</script>
+</body>
+</html>

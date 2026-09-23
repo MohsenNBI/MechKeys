@@ -1,0 +1,42 @@
+[package]
+name = "mechkeys"
+version = "1.6.0"
+description = "Mechanical keyboard sound simulator for Windows"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-ico"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cpal = "0.15"
+crossbeam-queue = "0.3"
+winreg = "0.52"
+# The update check is the only thing that ever leaves this machine, and it is a
+# plain GET of two fixed https addresses. `https` brings rustls and the Mozilla
+# root set with it, which is the honest way to verify GitHub's certificate.
+minreq = { version = "2", features = ["https"] }
+# Only for the Downloads folder, and already in the tree through tauri.
+dirs = "6"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

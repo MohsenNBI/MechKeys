@@ -1,0 +1,23 @@
+# Line endings are normalised in the repository and converted on checkout, so a
+# clone on Windows and one on Linux differ only in the working copy.
+* text=auto
+
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.mjs text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Nothing below is text; an accidental conversion corrupts it silently.
+*.wav binary
+*.png binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.exe binary
+*.zip binary
