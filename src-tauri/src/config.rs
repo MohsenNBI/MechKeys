@@ -44,7 +44,32 @@ impl Default for Config {
     }
 }
 
+/// Installed builds keep their settings in %APPDATA%. A copy that carries a
+/// `data` folder next to the exe is the portable one, and writes there instead,
+/// so the whole thing can live on a stick and still remember its settings.
 pub fn dir() -> PathBuf {
+    dir_at(std::env::current_exe().ok().as_deref())
+}
+
+/// True when this copy carries its settings beside itself. The page says so next
+/// to the version number, because a portable app is replaced by hand rather than
+/// installed over.
+pub fn portable() -> bool {
+    portable_at(std::env::current_exe().ok().as_deref()).is_some()
+}
+
+/// Split out from `dir` so both branches can be tried against an exe path that
+/// is not this binary's own.
+fn dir_at(exe: Option<&std::path::Path>) -> PathBuf {
+    portable_at(exe).unwrap_or_else(app_dir)
+}
+
+fn portable_at(exe: Option<&std::path::Path>) -> Option<PathBuf> {
+    let data = exe?.parent()?.join("data");
+    data.is_dir().then_some(data)
+}
+
+fn app_dir() -> PathBuf {
     let base = std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
@@ -80,6 +105,28 @@ pub fn save(cfg: &Config) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_data_folder_beside_the_exe_makes_it_portable() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("mechkeys-portable-{stamp}"));
+        let exe = root.join("mechkeys.exe");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        // No `data` folder: the settings stay where the installer put them.
+        assert_eq!(dir_at(Some(exe.as_path())), app_dir());
+        // The folder is the whole test, so an exe with no path at all is not one.
+        assert_eq!(dir_at(None), app_dir());
+
+        std::fs::create_dir(root.join("data")).unwrap();
+        assert_eq!(dir_at(Some(exe.as_path())), root.join("data"));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn the_interface_starts_in_english() {

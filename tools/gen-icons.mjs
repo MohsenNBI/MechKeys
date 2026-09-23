@@ -12,10 +12,10 @@ const MASTER_PNG = join(ROOT, "tools", "icon-master.png");
 const OUT = join(ROOT, "src-tauri", "icons");
 mkdirSync(OUT, { recursive: true });
 
-const MASTER = 1024;
+export const MASTER = 1024;
 
 // ---------- master ----------
-function decodeMaster() {
+export function decodeMaster() {
   const buf = execFileSync(
     "ffmpeg",
     [
@@ -42,7 +42,7 @@ function decodeMaster() {
 // the plate keeps a crisp edge instead of a halo.
 const PLATE_MIN = 48;
 
-function unmatteWhite(px) {
+export function unmatteWhite(px) {
   const N = MASTER * MASTER;
   const seen = new Uint8Array(N);
   const queue = new Int32Array(N);
@@ -87,9 +87,8 @@ function unmatteWhite(px) {
 }
 
 // ---------- resize (box filter from master) ----------
-// `keep` is the fraction of the master that survives: the tiny entries crop in a
-// little so the keycap still reads in a 16 px tray.
-function downscale(master, out, keep = 1) {
+// `keep` is the fraction of the master that survives, taken from the middle.
+export function downscale(master, out, keep = 1) {
   const dst = new Uint8Array(out * out * 4);
   const span = MASTER * keep;
   const inset = (MASTER - span) / 2;
@@ -119,72 +118,164 @@ function downscale(master, out, keep = 1) {
   return dst;
 }
 
-// ---------- hand-drawn 16 px frame ----------
-// The master is all gradients, so at 16 px it collapses into a grey boulder with a
-// detached amber speck (and the crop needed by the other sizes cuts its plate
-// corners off). This draws the same design flat instead: slate plate, thick
-// isometric keycap, amber accent on the front-left edge.
-const TINY = {
-  radius: 0.215,
-  cx: 0.5, cy: 0.395, hw: 0.31, hh: 0.15,
-  depth: 0.21,
-  edge: 0.035,
-};
-const TINY_PALETTE = {
-  plateTop: [0x25, 0x2e, 0x3b], plateBot: [0x11, 0x16, 0x1d],
-  top: [0xd6, 0xdd, 0xe5], left: [0x79, 0x85, 0x92], right: [0x5b, 0x66, 0x73],
-  amber: [0xf2, 0xa3, 0x3c],
-};
-
-function tinyFrame(size) {
-  const SS = 4;
-  const dst = new Uint8Array(size * size * 4);
-  const edge = Math.max(TINY.edge, 1.15 / size);
-  const p = TINY, c = TINY_PALETTE;
-
-  const inPlate = (x, y) => {
-    const px = Math.max(Math.abs(x - 0.5) - (0.5 - p.radius), 0);
-    const py = Math.max(Math.abs(y - 0.5) - (0.5 - p.radius), 0);
-    return Math.hypot(px, py) <= p.radius;
-  };
-  const inDiamond = (x, y, dy) =>
-    Math.abs(x - p.cx) / p.hw + Math.abs(y - p.cy - dy) / p.hh <= 1;
-  const wall = (x, y) => y >= p.cy && inDiamond(x, y, p.depth);
-  // distance to the front-left rim, from the left vertex to the bottom vertex
-  const railDist = (x, y) => {
-    const ax = p.cx - p.hw, ay = p.cy, ex = p.hw, ey = p.hh;
-    const t = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey)));
-    return Math.hypot(x - (ax + t * ex), y - (ay + t * ey));
-  };
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      let r = 0, g = 0, b = 0, a = 0;
-      for (let sy = 0; sy < SS; sy++) {
-        for (let sx = 0; sx < SS; sx++) {
-          const fx = (x + (sx + 0.5) / SS) / size, fy = (y + (sy + 0.5) / SS) / size;
-          let col = null;
-          if (inDiamond(fx, fy, 0)) col = c.top;
-          else if (wall(fx, fy)) col = fx <= p.cx ? c.left : c.right;
-          if (col && fx <= p.cx && railDist(fx, fy) <= edge / 2) col = c.amber;
-          if (!col && inPlate(fx, fy)) {
-            const t = Math.min(1, Math.max(0, (fy - 0.08) / 0.9));
-            col = [0, 1, 2].map((i) =>
-              Math.round(c.plateTop[i] + (c.plateBot[i] - c.plateTop[i]) * t),
-            );
+// ---------- small-size legibility pass ----------
+// The master is a soft drawing: gradients everywhere, and an amber hairline a
+// couple of pixels wide at 1024. Averaged down to 16 px the cap and the plate run
+// into one another and the accent turns grey, which is why this file used to
+// hand-draw a different, flatter picture for the tray — and why the tray icon
+// never matched the one in the window. So: keep the master's picture, and work
+// harder as it shrinks.
+//
+// The blur runs on premultiplied pixels, so the transparent field cannot drag
+// colour into the plate edge, and taps that fall off-canvas are dropped instead
+// of counted, so that edge does not pick up a dark fringe from the empty field.
+export function unsharp(src, size, amount) {
+  const n = size * size * 4;
+  const P = new Float32Array(n); // premultiplied original
+  for (let i = 0; i < n; i += 4) {
+    const a = src[i + 3] / 255;
+    P[i] = src[i] * a;
+    P[i + 1] = src[i + 1] * a;
+    P[i + 2] = src[i + 2] * a;
+    P[i + 3] = a;
+  }
+  const B = new Float32Array(n); // blurred
+  const T = new Float32Array(n);
+  const radius = 1; // 3-tap box: the widest blur that still leaves an edge here
+  const pass = (input, output, alongX) => {
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        for (let c = 0; c < 4; c++) {
+          let sum = 0, taps = 0;
+          for (let k = -radius; k <= radius; k++) {
+            const u = alongX ? x + k : y + k;
+            if (u < 0 || u >= size) continue;
+            sum += input[(alongX ? y * size + u : u * size + x) * 4 + c];
+            taps++;
           }
-          if (col) { r += col[0]; g += col[1]; b += col[2]; a += 255; }
+          output[(y * size + x) * 4 + c] = sum / taps;
         }
       }
-      const n = SS * SS, o = (y * size + x) * 4;
-      const cov = a / n / 255;
-      dst[o] = cov > 0 ? Math.round(r / n / cov) : 0;
-      dst[o + 1] = cov > 0 ? Math.round(g / n / cov) : 0;
-      dst[o + 2] = cov > 0 ? Math.round(b / n / cov) : 0;
-      dst[o + 3] = Math.round(a / n);
+    }
+  };
+  pass(P, T, true);
+  pass(T, B, false);
+  const dst = new Uint8Array(n);
+  for (let i = 0; i < n; i += 4) {
+    const a = P[i + 3];
+    dst[i + 3] = Math.round(a * 255);
+    if (a === 0) continue;
+    for (let c = 0; c < 3; c++) {
+      const sharp = P[i + c] + amount * (P[i + c] - B[i + c]);
+      dst[i + c] = Math.round(Math.max(0, Math.min(255, sharp / a)));
     }
   }
   return dst;
+}
+
+/// Pushes the mid-tones apart around `pivot` so the cap separates from the plate,
+/// and lifts the darkest values by `floor` so the plate keeps a silhouette on a
+/// dark taskbar — the master's plate fades to near black at the bottom, which is
+/// invisible against Windows' own chrome.
+export function tone(src, size, pivot, gain, floor) {
+  const dst = new Uint8Array(src.length);
+  const p = pivot * 255;
+  for (let i = 0; i < size * size; i++) {
+    const o = i * 4;
+    dst[o + 3] = src[o + 3];
+    for (let c = 0; c < 3; c++) {
+      const v = Math.max(0, Math.min(255, p + (src[o + c] - p) * gain));
+      dst[o + c] = Math.round(v + floor * (1 - v / 255));
+    }
+  }
+  return dst;
+}
+
+/// Separable Lanczos-3 over premultiplied RGBA, for the last 4:1 of a small
+/// frame. Averaging the master straight down to 16 px is what made it soft, so
+/// the box filter now stops at a four-times oversample and this finishes the
+/// job with a filter that keeps an edge where a box can only smear it.
+export function resample(src, from, to) {
+  const f = from / to;
+  const radius = Math.ceil(3 * f);
+  const w = (x) => {
+    if (x === 0) return 1;
+    const t = Math.abs(x) / f;
+    if (t >= 3) return 0;
+    const p = Math.PI * t;
+    return (3 * Math.sin(p) * Math.sin(p / 3)) / (p * p);
+  };
+  const pre = new Float32Array(from * from * 4);
+  for (let i = 0; i < from * from; i++) {
+    const a = src[i * 4 + 3] / 255;
+    pre[i * 4] = src[i * 4] * a;
+    pre[i * 4 + 1] = src[i * 4 + 1] * a;
+    pre[i * 4 + 2] = src[i * 4 + 2] * a;
+    pre[i * 4 + 3] = a;
+  }
+  const taps = (centre, count) => {
+    const list = [];
+    for (let k = -radius; k <= radius; k++) {
+      const u = Math.round(centre) + k;
+      if (u < 0 || u >= count) continue;
+      list.push([u, w(u - centre)]);
+    }
+    return list;
+  };
+  // Horizontal, then vertical: two one-dimensional walks over the same kernel.
+  const tmp = new Float32Array(to * from * 4);
+  for (let y = 0; y < from; y++) {
+    for (let x = 0; x < to; x++) {
+      const list = taps((x + 0.5) * f - 0.5, from);
+      const sum = list.reduce((a, [, ww]) => a + ww, 0) || 1;
+      const o = (y * to + x) * 4;
+      for (let ch = 0; ch < 4; ch++) tmp[o + ch] = 0;
+      for (const [u, ww] of list) {
+        const s = (y * from + u) * 4;
+        for (let ch = 0; ch < 4; ch++) tmp[o + ch] += pre[s + ch] * ww / sum;
+      }
+    }
+  }
+  const acc = new Float32Array(to * to * 4);
+  for (let y = 0; y < to; y++) {
+    for (let x = 0; x < to; x++) {
+      const list = taps((y + 0.5) * f - 0.5, from);
+      const sum = list.reduce((a, [, ww]) => a + ww, 0) || 1;
+      const o = (y * to + x) * 4;
+      for (let ch = 0; ch < 4; ch++) acc[o + ch] = 0;
+      for (const [v, ww] of list) {
+        const s = (v * to + x) * 4;
+        for (let ch = 0; ch < 4; ch++) acc[o + ch] += tmp[s + ch] * ww / sum;
+      }
+    }
+  }
+  const dst = new Uint8Array(to * to * 4);
+  for (let i = 0; i < to * to; i++) {
+    const a = acc[i * 4 + 3];
+    dst[i * 4 + 3] = Math.round(Math.max(0, Math.min(1, a)) * 255);
+    if (a <= 0) continue;
+    for (let c = 0; c < 3; c++) {
+      dst[i * 4 + c] = Math.round(Math.max(0, Math.min(255, acc[i * 4 + c] / a)));
+    }
+  }
+  return dst;
+}
+
+/// How each frame is coaxed out of the master. Below 64 px it is the same
+/// picture, just cropped in, sharpened and squeezed until it reads at tray size.
+export const TWEAK = {
+  16: { keep: 0.86, unsharp: 0.75, pivot: 0.33, gain: 1.18, floor: 46 },
+  20: { keep: 0.88, unsharp: 0.65, pivot: 0.33, gain: 1.14, floor: 40 },
+  24: { keep: 0.9, unsharp: 0.55, pivot: 0.35, gain: 1.1, floor: 32 },
+  32: { keep: 0.94, unsharp: 0.45, pivot: 0.36, gain: 1.06, floor: 20 },
+  48: { keep: 0.97, unsharp: 0.3, pivot: 0.38, gain: 1.02, floor: 8 },
+};
+
+export function frameFor(master, size) {
+  const t = TWEAK[size];
+  if (!t) return downscale(master, size);
+  const shrunk = resample(downscale(master, size * 4, t.keep), size * 4, size);
+  return tone(unsharp(shrunk, size, t.unsharp), size, t.pivot, t.gain, t.floor);
 }
 
 // ---------- PNG encoder ----------
@@ -213,7 +304,7 @@ function chunk(type, data) {
   return Buffer.concat([len, body, crc]);
 }
 
-function pngEncode(rgba, size) {
+export function pngEncode(rgba, size) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(size, 0);
   ihdr.writeUInt32BE(size, 4);
@@ -269,7 +360,7 @@ function bmpEntry(rgba, size) {
   return Buffer.concat([header, xor, and]);
 }
 
-function icoEncode(sizes, images) {
+export function icoEncode(sizes, images) {
   const entries = [];
   const blobs = [];
   let offset = 6 + sizes.length * 16;
@@ -295,22 +386,33 @@ function icoEncode(sizes, images) {
 }
 
 // ---------- run ----------
+export const pngSizes = [16, 20, 24, 32, 48, 64, 128, 256];
+export const traySizes = [16, 20, 24, 32, 48, 64];
+
+function main() {
 console.log("decoding %s ...", MASTER_PNG);
 const master = decodeMaster();
 unmatteWhite(master);
 
-const pngSizes = [16, 32, 48, 64, 128, 256];
-/// fraction of the master kept per size, see `downscale`
-const KEEP = { 32: 0.88 };
 const images = {};
-for (const s of pngSizes) images[s] = s === 16 ? tinyFrame(s) : downscale(master, s, KEEP[s] || 1);
+for (const s of pngSizes) images[s] = frameFor(master, s);
+
+// The tray wants an image that is already the pixel size Windows will draw it
+// at, so the frames below are handed over as raw RGBA and the app picks one by
+// scale factor. `Image::new` borrows them, so `include_bytes!` costs no copy.
 
 const files = [
+  ["16x16.png", pngEncode(images[16], 16)],
+  ["20x20.png", pngEncode(images[20], 20)],
+  ["24x24.png", pngEncode(images[24], 24)],
   ["32x32.png", pngEncode(images[32], 32)],
+  ["48x48.png", pngEncode(images[48], 48)],
+  ["64x64.png", pngEncode(images[64], 64)],
   ["128x128.png", pngEncode(images[128], 128)],
   ["128x128@2x.png", pngEncode(images[256], 256)],
   ["icon.png", pngEncode(images[256], 256)],
-  ["icon.ico", icoEncode([16, 32, 48, 64, 128, 256], images)],
+  ["icon.ico", icoEncode(pngSizes, images)],
+  ...traySizes.map((s) => [`tray-${s}.rgba`, Buffer.from(images[s].buffer)]),
 ];
 for (const [name, buf] of files) {
   writeFileSync(join(OUT, name), buf);
@@ -322,3 +424,7 @@ const uiIcon = pngEncode(images[256], 256);
 writeFileSync(join(ROOT, "src", "icon.png"), uiIcon);
 console.log("wrote src/icon.png  (%d bytes)", uiIcon.length);
 console.log("done ->", OUT);
+}
+
+// Importing this file gives the pipeline; running it writes the icon set.
+if (process.argv[1] && process.argv[1].endsWith("gen-icons.mjs")) main();

@@ -44,6 +44,7 @@ fn get_state(st: State<'_, AppState>) -> UiState {
         auto_release: cfg.auto_release,
         check_updates: cfg.check_updates,
         autostart: autostart::is_enabled(),
+        portable: config::portable(),
         lang: config::lang(&cfg.lang).to_string(),
         errors: st.errors.lock().unwrap().clone(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -265,6 +266,10 @@ fn main() {
 
             setup_tray(app.handle(), lang)?;
 
+            if let Some(window) = app.get_webview_window("main") {
+                set_native_icons(&window);
+            }
+
             if start_hidden {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.hide();
@@ -310,6 +315,7 @@ struct Labels {
     tooltip: &'static str,
     show: &'static str,
     toggle: &'static str,
+    update: &'static str,
     quit: &'static str,
 }
 
@@ -320,6 +326,7 @@ fn labels(lang: &str) -> Labels {
             tooltip: "MechKeys — صدای کیبورد مکانیکی",
             show: "نمایش پنجره",
             toggle: "روشن / خاموش کردن صدا",
+            update: "بررسی به‌روزرسانی",
             quit: "خروج",
         }
     } else {
@@ -328,6 +335,7 @@ fn labels(lang: &str) -> Labels {
             tooltip: "MechKeys — mechanical keyboard sound",
             show: "Show window",
             toggle: "Sound on / off",
+            update: "Check for updates",
             quit: "Quit",
         }
     }
@@ -339,8 +347,10 @@ fn build_menu(app: &AppHandle, lang: &str) -> tauri::Result<tauri::menu::Menu<ta
     let show = MenuItem::with_id(app, "show", t.show, true, None::<&str>)?;
     let toggle = MenuItem::with_id(app, "toggle", t.toggle, true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    let update = MenuItem::with_id(app, "update", t.update, true, None::<&str>)?;
+    let separator2 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", t.quit, true, None::<&str>)?;
-    Menu::with_items(app, &[&show, &toggle, &separator, &quit])
+    Menu::with_items(app, &[&show, &toggle, &separator, &update, &separator2, &quit])
 }
 
 /// Puts the tray and the title bar into a language. Called once at startup and
@@ -362,30 +372,124 @@ fn retranslate(app: &AppHandle, lang: &str) {
     }
 }
 
+/// The icon set carries a raw RGBA frame at each size the shell can ask for.
+/// `include_bytes!` because `Image::new` borrows its pixels, so picking a frame
+/// costs no copy.
+fn icon_frames() -> &'static [(u32, &'static [u8])] {
+    const F16: &[u8] = include_bytes!("../icons/tray-16.rgba");
+    const F20: &[u8] = include_bytes!("../icons/tray-20.rgba");
+    const F24: &[u8] = include_bytes!("../icons/tray-24.rgba");
+    const F32: &[u8] = include_bytes!("../icons/tray-32.rgba");
+    const F48: &[u8] = include_bytes!("../icons/tray-48.rgba");
+    const F64: &[u8] = include_bytes!("../icons/tray-64.rgba");
+    const FRAMES: &[(u32, &[u8])] = &[
+        (16, F16),
+        (20, F20),
+        (24, F24),
+        (32, F32),
+        (48, F48),
+        (64, F64),
+    ];
+    FRAMES
+}
+
+/// The first frame big enough for `want`, so a size the set does not carry still
+/// gets a picture that only has to shrink a little.
+fn frame_at(want: u32) -> (u32, &'static [u8]) {
+    let frames = icon_frames();
+    *frames
+        .iter()
+        .find(|(s, _)| *s >= want)
+        .unwrap_or(frames.last().unwrap())
+}
+
+/// The tray is drawn at the small-icon size the shell uses — 16 px at 100 %
+/// scale, more on a high-DPI screen. Feeding it the 256 px window icon let
+/// Windows grind it down to a smudge, so this takes a frame cut for the size.
+fn tray_icon(scale: f64) -> tauri::image::Image<'static> {
+    let (size, rgba) = frame_at((16.0 * scale).round() as u32);
+    tauri::image::Image::new(rgba, size, size)
+}
+
+/// The title bar and the taskbar ask the *window* for its icon, and Tauri hands
+/// both of them the 256 px image it decoded out of `icon.ico` — so Windows
+/// squashes 256 px into a 16 px slot, and that is the blur. The frames below are
+/// already cut for those slots, so build a real HICON at the size the shell
+/// reports and install it over the one Tauri set.
+#[cfg(windows)]
+fn set_native_icons(window: &tauri::WebviewWindow) {
+    use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateIcon, GetSystemMetrics, SendMessageW, ICON_BIG, ICON_SMALL, SM_CXICON, SM_CXSMICON,
+        WM_SETICON,
+    };
+
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    unsafe {
+        for (kind, metric) in [(ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)] {
+            let wanted = GetSystemMetrics(metric).max(1) as u32;
+            let (size, rgba) = frame_at(wanted);
+            // CreateIcon wants BGRA plus the inverted alpha as a mask.
+            let mut bgra = Vec::with_capacity((size * size) as usize * 4);
+            let mut mask = Vec::with_capacity((size * size) as usize);
+            for px in rgba.chunks_exact(4) {
+                bgra.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+                mask.push(px[3].wrapping_sub(255));
+            }
+            let Ok(hicon) = CreateIcon(
+                None,
+                size as i32,
+                size as i32,
+                1,
+                32,
+                mask.as_ptr(),
+                bgra.as_ptr(),
+            ) else {
+                continue;
+            };
+            let _ = SendMessageW(
+                HWND(hwnd.0),
+                WM_SETICON,
+                WPARAM(kind as usize),
+                LPARAM(hicon.0 as isize),
+            );
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn set_native_icons(_window: &tauri::WebviewWindow) {}
+
+/// Brings the window forward. The tray offers it three times over: the menu, a
+/// left click, and any menu item that needs the page on screen to be answered.
+fn reveal(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 fn setup_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
     let menu = build_menu(app, lang)?;
     let t = labels(lang);
-
-    // Copied into an owned image so the tray does not borrow the app handle.
-    let icon = app
-        .default_window_icon()
-        .map(|i| tauri::image::Image::new_owned(i.rgba().to_vec(), i.width(), i.height()))
-        .unwrap_or_else(fallback_icon);
+    let scale = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0);
 
     TrayIconBuilder::with_id(TRAY)
-        .icon(icon)
+        .icon(tray_icon(scale))
         .tooltip(t.tooltip)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
+            "show" => reveal(app),
             "toggle" => {
                 let st = app.state::<AppState>();
                 let enabled = !st.shared.enabled.load(Ordering::Relaxed);
@@ -393,6 +497,13 @@ fn setup_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
                 let mut cfg = st.cfg.lock().unwrap();
                 cfg.enabled = enabled;
                 config::save(&cfg);
+            }
+            // The words of an update check live in the page, so the menu item
+            // only opens it and asks; the page does the rest.
+            "update" => {
+                reveal(app);
+                use tauri::Emitter;
+                let _ = app.emit("tray-update", ());
             }
             "quit" => app.exit(0),
             _ => {}
@@ -404,11 +515,7 @@ fn setup_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
                 ..
             } = event
             {
-                let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                reveal(tray.app_handle());
             }
         })
         .build(app)?;
@@ -416,46 +523,6 @@ fn setup_tray(app: &AppHandle, lang: &str) -> tauri::Result<()> {
         let _ = window.set_title(t.title);
     }
     Ok(())
-}
-
-/// Used only if the bundled .ico could not be decoded: an amber-lit keycap on a slate plate.
-fn fallback_icon() -> tauri::image::Image<'static> {
-    const PLATE: [u8; 3] = [0x1b, 0x21, 0x29];
-    const TOP: [u8; 3] = [0xd5, 0xdc, 0xe4];
-    const SIDE: [u8; 3] = [0x6f, 0x7b, 0x88];
-    const AMBER: [u8; 3] = [0xf2, 0xa3, 0x3c];
-
-    let (w, h) = (32u32, 32u32);
-    let mut rgba = vec![0u8; (w * h * 4) as usize];
-    for y in 0..h {
-        for x in 0..w {
-            let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-            let dx = (fx - 16.0).abs();
-            let top = dx / 9.0 + (fy - 13.0).abs() / 5.0 <= 1.0;
-            let skirt = dx / 9.0 + (fy - 17.0).abs() / 5.0;
-            let arc = {
-                let r = ((fx - 25.0).powi(2) + (fy - 8.0).powi(2)).sqrt();
-                (4.2..=5.4).contains(&r) && fy <= 12.0
-            };
-            let rgb = if top {
-                Some(TOP)
-            } else if arc {
-                Some(AMBER)
-            } else if skirt <= 1.0 {
-                Some(if skirt > 0.88 && fx <= 16.0 { AMBER } else { SIDE })
-            } else if (fx - 16.0).abs() < 15.5 && (fy - 16.0).abs() < 15.5 {
-                Some(PLATE)
-            } else {
-                None
-            };
-            let i = ((y * w + x) * 4) as usize;
-            if let Some(c) = rgb {
-                rgba[i..i + 3].copy_from_slice(&c);
-                rgba[i + 3] = 255;
-            }
-        }
-    }
-    tauri::image::Image::new_owned(rgba, w, h)
 }
 
 /// Headless check of the whole pipeline: hook -> lock free queue -> audio voices.

@@ -1,6 +1,6 @@
 [package]
 name = "mechkeys"
-version = "1.6.0"
+version = "1.7.0"
 description = "Mechanical keyboard sound simulator for Windows"
 edition = "2021"
 rust-version = "1.77"

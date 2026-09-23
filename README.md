@@ -54,10 +54,13 @@ telemetry.
   audio, MechKeys steps out of the lock and returns as soon as you type again.
 - **Small and cheap at idle.** One executable of about 9 MB, under 0.1 % CPU
   while nothing is happening — measured on 12 cores with the window open.
-- **Updates from GitHub**, one click, entirely optional.
+- **Updates from GitHub**, one click, entirely optional — from the window or
+  from the tray menu.
 - **Two languages.** Persian (right to left) and English (left to right), with
   the choice kept in the settings file.
 - **System tray, and an optional start with Windows.**
+- **Installed or portable.** Same executable; a portable copy keeps its
+  settings in a `data` folder next to itself.
 
 Windows 10 and 11, on both 64-bit and 32-bit machines. Windows only: the global
 keyboard hook, the WASAPI output and the session monitor are all Windows
@@ -65,6 +68,18 @@ interfaces, and on Linux a system-wide key listener is not permitted under
 Wayland at all.
 
 ## Install
+
+Each release carries four files. Two installers and two portable archives, one
+of each pair for every word size:
+
+| File | Runs on | Installs? |
+| --- | --- | --- |
+| `MechKeys_x.y.z_x64-setup.exe` | 64-bit Windows | Yes |
+| `MechKeys_x.y.z_x86-setup.exe` | 32-bit Windows | Yes |
+| `MechKeys_x.y.z-portable-x64.zip` | 64-bit Windows | No |
+| `MechKeys_x.y.z-portable-x86.zip` | 32-bit Windows | No |
+
+### Installer
 
 Download `MechKeys_x.y.z_x64-setup.exe` from the
 [latest release](https://github.com/mohsenNBI/MechKeys/releases/latest) and run
@@ -74,6 +89,20 @@ system tray.
 
 If Windows shows a SmartScreen warning on the first run — the installer carries
 no paid publisher signature — choose **More info** and then **Run anyway**.
+
+### Portable
+
+Unzip either archive anywhere you like — a USB stick, a Documents folder, a
+roaming profile — and run `mechkeys.exe`. Nothing touches the registry beyond
+the optional start-with-Windows entry, and the settings stay inside the folder
+as `data\config.json`, so the whole program moves with you and remembers how
+you left it. The About tab marks such a copy with `· portable` next to the
+version, and it is never offered an installer download: a portable copy is
+replaced by hand.
+
+An installed copy that grows a `data` folder beside its executable starts
+reading and writing its settings there, and the other way round — delete the
+folder and it goes back to `%APPDATA%\MechKeys`.
 
 ## Using the window
 
@@ -98,7 +127,8 @@ three tabs of settings beneath it.
 | **English / فارسی** | Changes the interface language, the tray menu and the title bar, and remembers it. |
 
 The window has no quit button on purpose. Right-click the icon by the Windows
-clock and choose **Quit**.
+clock for its menu: **Show**, **Check for updates** and **Quit**. A left click
+on that icon does the same as **Show**.
 
 ### The keyboard on the window
 
@@ -183,6 +213,8 @@ mechkeys --sessions
 **Check for updates** queries
 `api.github.com/repos/mohsenNBI/MechKeys/releases/latest`. If a newer version
 exists, the window shows its number, its notes and a link to the release page.
+The tray menu offers the same check: it brings the window forward, opens the
+About tab and asks, so the answer is on screen either way.
 The **Check automatically** box runs that same query once at startup, silently;
 it writes anything to the window only when there is something new.
 
@@ -203,8 +235,9 @@ machine it is running on and never offers it the other.
 - The only network request this program can make is the GitHub release query.
   With **Check automatically** off and the button untouched, it runs entirely
   offline.
-- Settings live in `%APPDATA%\MechKeys\config.json`. Nothing else is written to
-  disk — unless you download an installer, which lands in Downloads.
+- Settings live in `%APPDATA%\MechKeys\config.json`, or in `data\config.json`
+  beside the executable of a portable copy. Nothing else is written to disk —
+  unless you download an installer, which lands in Downloads.
 
 ## Configuration
 
@@ -251,7 +284,7 @@ need `link.exe`.
 
 ```bash
 cd src-tauri
-cargo test --release                            # 50 tests
+cargo test --release                            # 51 tests
 cargo build --release                           # target/release/mechkeys.exe
 
 npx --yes @tauri-apps/cli@2 build               # installer for this machine
@@ -259,14 +292,30 @@ npx --yes @tauri-apps/cli@2 build --target i686-pc-windows-msvc
 ```
 
 Either build command writes an NSIS installer into
-`src-tauri/target/<target>/release/bundle/nsis`.
+`src-tauri/target/<target>/release/bundle/nsis`. The portable archive is the
+matching `mechkeys.exe` and an empty `data` folder, zipped:
 
-The sounds are part of the repository. To rebuild them from their originals:
+```bash
+zip -r MechKeys_1.7.0-portable-x64.zip mechkeys.exe data
+```
+
+The GitHub Actions build does both, for both word sizes.
+
+The sounds and the icons are part of the repository. To rebuild them from their
+originals:
 
 ```bash
 node tools/build-sounds.mjs   # download the kbsim recordings, trim, normalise, 48 kHz
 node tools/gen-icons.mjs      # icons/ and src/icon.png from tools/icon-master.png
 ```
+
+`gen-icons.mjs` cuts one frame per size from a single 1024 px master — 16, 20,
+24, 32, 48, 64, 128 and 256 in `icon.ico`, plus the raw 32-bit frames the tray
+and the window icon are built from. Each small frame gets its own sharpening and
+contrast pass, because a picture scaled down to 16 px and left alone is a blur;
+the program then hands Windows the frame sized for the slot it asked for instead
+of letting it grind the 256 px one down. That is why the icon in the title bar,
+on the taskbar and by the clock is the same keycap the About tab shows.
 
 ### Repository layout
 
@@ -300,15 +349,16 @@ The repository holds no build output — `target/`, `node_modules/` and
 ```bash
 git init -b main
 git add .
-git commit -m "MechKeys 1.6.0"
+git commit -m "MechKeys 1.7.0"
 git remote add origin https://github.com/mohsenNBI/MechKeys.git
 git push -u origin main
-git tag v1.6.0 && git push origin v1.6.0
+git tag v1.7.0 && git push origin v1.7.0
 ```
 
 The GitHub Actions build runs the tests and produces an installer for each word
-size on every push. A `v*` tag additionally publishes those installers onto the
-release itself, which is where the update button in the program looks.
+size on every push. A `v*` tag additionally publishes those installers, and the
+portable archives, onto the release itself — which is where the update button in
+the program looks.
 
 ## Troubleshooting
 

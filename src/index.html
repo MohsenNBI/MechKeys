@@ -852,6 +852,8 @@ footer { margin-top: auto; display: flex; flex-direction: column; gap: 5px; padd
 
   let lang = "en", profile = "", volTimer = null, volLast = 0;
   let notes = [], upd = null, busy = null;
+  // A portable copy is replaced by hand, so it is never offered an installer.
+  let portable = false;
 
   const tr = (key) => T[key][lang === "fa" ? 0 : 1];
   const pick = (pair) => pair[lang === "fa" ? 0 : 1];
@@ -1059,7 +1061,7 @@ footer { margin-top: auto; display: flex; flex-direction: column; gap: 5px; padd
         { tag: "b", text: tr("newVersion") + u.version },
         (u.published ? tr("published") + u.published : "") + (first ? ". " + first : "."),
       ]);
-      $("dlUpd").hidden = false;
+      $("dlUpd").hidden = portable;
       $("pgUpd").hidden = false;
       $("pgUpd").onclick = (e) => {
         e.preventDefault();
@@ -1155,7 +1157,8 @@ footer { margin-top: auto; display: flex; flex-direction: column; gap: 5px; padd
     $("autoRelease").checked = !!s.autoRelease;
     $("autoUpd").checked = !!s.checkUpdates;
     $("autostart").checked = s.autostart;
-    $("version").textContent = "v" + s.version;
+    portable = !!s.portable;
+    $("version").textContent = "v" + s.version + (portable ? " · portable" : "");
     $("eyebrow").textContent = "v" + s.version + " · wasapi";
     applyLang(s.lang);
     paintProfile(s.profile, false);
@@ -1192,6 +1195,11 @@ footer { margin-top: auto; display: flex; flex-direction: column; gap: 5px; padd
     $("autoRelease").onchange = (e) => invoke("set_auto_release", { enabled: e.target.checked });
     $("chkUpd").onclick = () => checkUpdate(false);
     $("dlUpd").onclick = () => downloadUpdate();
+    // The tray's own "check for updates" arrives here: it opens the pane that
+    // answers it, then asks out loud, so the result is on screen either way.
+    window.__TAURI__.event
+      .listen("tray-update", () => { showTab("tabAbout"); checkUpdate(false); })
+      .catch(() => {});
     $("autoUpd").onchange = (e) => {
       invoke("set_check_updates", { enabled: e.target.checked });
       if (e.target.checked) checkUpdate(true);

@@ -351,6 +351,7 @@ pub struct UiState {
     pub auto_release: bool,
     pub check_updates: bool,
     pub autostart: bool,
+    pub portable: bool,
     pub lang: String,
     pub errors: Vec<UiError>,
     pub version: String,
