@@ -74,7 +74,7 @@ jobs:
           name: MechKeys-windows-${{ matrix.arch }}
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-            MechKeys-*-portable-*.zip
+            MechKeys_*-portable-*.zip
           if-no-files-found: error
 
   release:
@@ -89,10 +89,22 @@ jobs:
           path: packages
           merge-multiple: true
 
+      # An artifact keeps the directory each file was uploaded from, so the
+      # installers arrive under packages/src-tauri/target/... and the release
+      # step would find nothing to publish. Collect the four files into one
+      # flat folder, and refuse to go on if a build is missing.
+      - name: Collect the packages
+        run: |
+          mkdir -p out
+          find packages -type f \( -name '*.exe' -o -name '*.zip' \) -exec cp -v -- {} out/ \;
+          count=$(find out -type f | wc -l)
+          echo "publishing $count files"
+          test "$count" -eq 4
+
       - uses: softprops/action-gh-release@v2
         with:
           name: MechKeys ${{ github.ref_name }}
-          files: packages/*
+          files: out/*
           generate_release_notes: true
           body: |
             Two installers and two portable folders, one of each per word size.
