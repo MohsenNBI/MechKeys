@@ -6,14 +6,6 @@ Mechanical keyboard sounds for Windows. Every key on the board plays a real
 recording of a real switch, routed by where that key sits on the plate, with a
 global keyboard hook and a WASAPI output that answers in a few milliseconds.
 
-![The MechKeys window](docs/screenshot.png)
-
-The same window in Persian; English is the default. The **English / فارسی**
-control at the bottom switches the interface, the reading direction, the tray
-menu and the title bar in one click.
-
-![The Persian interface](docs/screenshot-fa.png)
-
 Your keyboard does not sound like a recording of one key. MechKeys reads each
 press by physical position: the middle of the plate rings looser and lower, the
 keys near the case are tighter and sharper, and repeated presses of one key
