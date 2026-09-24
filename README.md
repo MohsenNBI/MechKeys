@@ -1,5 +1,7 @@
 # MechKeys
 
+![MechKeys — your mechanical keyboard sound companion](docs/hero.png)
+
 Mechanical keyboard sounds for Windows. Every key on the board plays a real
 recording of a real switch, routed by where that key sits on the plate, with a
 global keyboard hook and a WASAPI output that answers in a few milliseconds.
